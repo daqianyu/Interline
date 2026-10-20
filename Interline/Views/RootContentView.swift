@@ -71,7 +71,7 @@ public struct ReaderContainerView: View {
                     }
                     .contentShape(Rectangle())
                     .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                        if appState.currentPage != nil { appState.isSelectionPresented = true; appState.areControlsVisible = false }
+                        appState.presentTextSelection()
                     })
                     .onTapGesture { point in handleTap(at: point, width: geometry.size.width) }
                     .gesture(DragGesture(minimumDistance: 30).onEnded { value in
@@ -86,7 +86,7 @@ public struct ReaderContainerView: View {
                     .accessibilityAction(named: Text("下一页")) { appState.nextPage() }
                     .accessibilityAction(named: Text("上一页")) { appState.prevPage() }
                     .accessibilityAction(named: Text("显示阅读工具")) { appState.toggleControls() }
-                    .accessibilityAction(named: Text("选字与标注")) { appState.isSelectionPresented = true }
+                    .accessibilityAction(named: Text("选字与标注")) { appState.presentTextSelection() }
                     .accessibilityIdentifier("readerCanvas")
                     .onChange(of: geometry.size, initial: true) { _, size in
                         appState.prepareReader(size: size, scale: readingScale)
@@ -144,7 +144,7 @@ public struct ReaderContainerView: View {
                         .accessibilityLabel("搜索正文")
                         .accessibilityIdentifier("readerSearch")
                         Button {
-                            appState.isSelectionPresented = true
+                            appState.presentTextSelection()
                         } label: {
                             Image(systemName: "text.cursor").frame(width: 44, height: 44)
                         }
@@ -246,11 +246,8 @@ public struct ReaderContainerView: View {
         }
         .preferredColorScheme(theme.isDark ? .dark : .light)
         .sheet(isPresented: $appState.isBookSearchPresented) { BookSearchView(book: book) }
-        .sheet(isPresented: $appState.isSelectionPresented) {
-            if let page = appState.currentPage {
-                TextSelectionSheet(bookID: book.id, chapterID: page.chapterID, page: page,
-                    text: appState.currentPageText, preferences: appState.preferences)
-            }
+        .sheet(item: $appState.selectionSnapshot) { snapshot in
+            TextSelectionSheet(snapshot: snapshot).id(snapshot.id)
         }
         .sheet(isPresented: $appState.isTOCPresented) {
             TOCSheetView(book: book)

@@ -4,11 +4,12 @@ import UIKit
 /// Selection is intentionally a separate system text surface: native selection,
 /// copying and lookup don't conflict with the reading canvas's page gestures.
 struct TextSelectionSheet: View {
-    let bookID: String
-    let chapterID: String
-    let page: PageSlice
-    let text: String
-    let preferences: ReadingPreferences
+    let snapshot: ReadingSelectionSnapshot
+    private var bookID: String { snapshot.bookID }
+    private var chapterID: String { snapshot.page.chapterID }
+    private var page: PageSlice { snapshot.page }
+    private var text: String { snapshot.text }
+    private var preferences: ReadingPreferences { snapshot.preferences }
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var selection = NSRange(location: 0, length: 0)
@@ -82,12 +83,13 @@ private struct SelectableTextView: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: 16, left: 20, bottom: 24, right: 20)
         let base = UIFont.systemFont(ofSize: preferences.fontSize)
         let descriptor = preferences.fontFamily == .serif ? (base.fontDescriptor.withDesign(.serif) ?? base.fontDescriptor) : base.fontDescriptor
-        let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont(descriptor: descriptor, size: preferences.fontSize))
+        let baseFont = UIFont(descriptor: descriptor, size: preferences.fontSize)
+        let font = (preferences.usesDynamicType ?? true) ? UIFontMetrics(forTextStyle: .body).scaledFont(for: baseFont) : baseFont
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = preferences.lineSpacing
         view.attributedText = NSAttributedString(string: text, attributes: [.font: font,
             .foregroundColor: UIColor(preferences.theme.textColor), .paragraphStyle: paragraph])
-        view.adjustsFontForContentSizeCategory = true
+        view.adjustsFontForContentSizeCategory = preferences.usesDynamicType ?? true
         view.delegate = context.coordinator
         return view
     }

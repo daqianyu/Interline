@@ -80,7 +80,8 @@ public enum TXTImportService {
             throw TextImportError.decoding
         }
         let heading = try NSRegularExpression(pattern:
-            #"^(?:第[零〇一二三四五六七八九十百千万两0-9]+[章节回卷部篇集].{0,50}|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s+[0-9]+.{0,50}|序章|序言|前言|楔子|尾声|后记|正文(?: · 分段 [0-9]+)?)$"#)
+            #"^(?:第[零〇一二三四五六七八九十百千万两0-9]+[章节回卷部篇集].{0,50}|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s+[0-9]+.{0,50}|序章|序言|前言|楔子|尾声|后记|正文)$"#)
+        let splitSuffix = try NSRegularExpression(pattern: #" · 分段 [0-9]+$"#)
         var chapters: [Chapter] = []
         var title = "正文"
         var paragraphs: [String] = []
@@ -96,7 +97,9 @@ public enum TXTImportService {
             if index.isMultiple(of: 256) { try Task.checkCancellation() }
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
-            if line.utf16.count <= 80 && heading.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil {
+            let lineRange = NSRange(location: 0, length: line.utf16.count)
+            let baseHeading = lineRange.length <= 100 ? splitSuffix.stringByReplacingMatches(in: line, range: lineRange, withTemplate: "") : line
+            if baseHeading.utf16.count <= 80 && heading.firstMatch(in: baseHeading, range: NSRange(location: 0, length: baseHeading.utf16.count)) != nil {
                 flush()
                 title = line
                 part = 1
