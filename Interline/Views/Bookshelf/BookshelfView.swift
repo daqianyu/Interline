@@ -6,13 +6,11 @@ import SwiftUI
 public struct BookshelfView: View {
     @EnvironmentObject private var appState: AppState
 
+    @State private var selectedBook: Book?
+
     public init() {}
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 16),
-        GridItem(.flexible(), spacing: 16),
-        GridItem(.flexible(), spacing: 16)
-    ]
+    private let columns = [GridItem(.adaptive(minimum: 102, maximum: 150), spacing: 16)]
 
     public var body: some View {
         NavigationStack {
@@ -34,8 +32,9 @@ public struct BookshelfView: View {
                         ContentUnavailableView {
                             Label("书架是空的", systemImage: "books.vertical")
                         } description: {
-                            Text("添加示例书，开始阅读。")
+                            Text("从文件导入 TXT，或添加示例书开始阅读。")
                         } actions: {
+                            BookImportButton()
                             Button("添加示例书") { appState.restoreSampleBooks() }
                         }
                     } else if appState.filteredBooks.isEmpty {
@@ -54,6 +53,7 @@ public struct BookshelfView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    BookImportButton()
                     Button(action: {
                         withAnimation {
                             appState.isSearchPresented.toggle()
@@ -76,6 +76,7 @@ public struct BookshelfView: View {
                     }
                 }
             }
+            .sheet(item: $selectedBook) { book in BookDetailView(bookID: book.id) }
         }
     }
 
@@ -158,6 +159,10 @@ public struct BookshelfView: View {
                 .clipShape(RoundedRectangle(cornerRadius: ThemeTokens.Radius.card, style: .continuous))
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("continueReading")
+            .contextMenu {
+                Button("书籍详情", systemImage: "info.circle") { selectedBook = book }
+            }
         }
     }
 
@@ -184,6 +189,12 @@ public struct BookshelfView: View {
                                 BookCoverView(book: book, width: 102, height: 140)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("bookCover-" + book.id)
+                            .accessibilityLabel("\(book.title)，\(book.author)")
+                            .contextMenu {
+                                Button("书籍详情", systemImage: "info.circle") { selectedBook = book }
+                                Button("从书架移出", systemImage: "minus.circle", role: .destructive) { appState.deleteBook(id: book.id) }
+                            }
 
                             // Edit Mode Delete Button
                             if appState.isEditingBookshelf {
@@ -201,7 +212,12 @@ public struct BookshelfView: View {
                             }
                         }
 
-                        Text(book.title)
+                        HStack(alignment: .top) {
+                            Text(book.title).font(.subheadline)
+                            Spacer(minLength: 0)
+                            Button { selectedBook = book } label: { Image(systemName: "ellipsis").frame(minWidth: 28, minHeight: 44) }
+                                .accessibilityLabel("\(book.title)的书籍详情")
+                        }
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(ThemeTokens.Colors.label)
                             .lineLimit(1)

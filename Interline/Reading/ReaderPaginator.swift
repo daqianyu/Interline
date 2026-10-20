@@ -2,20 +2,28 @@ import CoreText
 import UIKit
 import SwiftUI
 
-/// The current chapter's layout is reused across page turns and replaced on resize.
+/// Render-only objects remain on the main actor. Background work returns plain ranges.
 @MainActor
 public final class ChapterPagination {
     public let text: NSAttributedString
     public let pages: [PageSlice]
-    public let frames: [CTFrame]
     public let size: CGSize
+    private let framesetter: CTFramesetter
 
-    init(text: NSAttributedString, pages: [PageSlice], frames: [CTFrame], size: CGSize) {
+    init(text: NSAttributedString, pages: [PageSlice], size: CGSize) {
         self.text = text
         self.pages = pages
-        self.frames = frames
         self.size = size
+        framesetter = CTFramesetterCreateWithAttributedString(text as CFAttributedString)
     }
+
+    public func frame(at index: Int) -> CTFrame {
+        let range = pages[index].range
+        let path = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
+        return CTFramesetterCreateFrame(framesetter, CFRange(location: range.location, length: range.length), path, nil)
+    }
+
+    public var frames: [CTFrame] { pages.indices.map { frame(at: $0) } }
 
     public func pageIndex(containing offset: Int) -> Int {
         pages.firstIndex(where: { $0.contains(max(0, offset)) }) ?? max(0, pages.count - 1)
@@ -26,12 +34,13 @@ public enum PaginationError: Error {
     case viewportTooSmall
 }
 
-@MainActor
 public enum ReaderPaginator {
-    public static func paginate(chapter: Chapter, size: CGSize, preferences: ReadingPreferences) throws -> ChapterPagination {
-        guard size.width >= 44, size.height >= preferences.fontSize * 2 else {
-            throw PaginationError.viewportTooSmall
-        }
+    @MainActor public static func paginate(chapter: Chapter, size: CGSize, preferences: ReadingPreferences) throws -> ChapterPagination {
+        let pages = try pageRanges(chapter: chapter, size: size, preferences: preferences)
+        return ChapterPagination(text: attributedText(chapter: chapter, preferences: preferences), pages: pages, size: size)
+    }
+
+    public static func attributedText(chapter: Chapter, preferences: ReadingPreferences) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = preferences.lineSpacing
         paragraph.paragraphSpacing = preferences.fontSize * 0.5
@@ -51,22 +60,27 @@ public enum ReaderPaginator {
                 .paragraphStyle: heading
             ], range: NSRange(location: 0, length: chapter.title.utf16.count))
         }
+        return text
+    }
+
+    public static func pageRanges(chapter: Chapter, size: CGSize, preferences: ReadingPreferences) throws -> [PageSlice] {
+        guard size.width >= 44, size.height >= preferences.fontSize * 2 else { throw PaginationError.viewportTooSmall }
+        let text = attributedText(chapter: chapter, preferences: preferences)
         let framesetter = CTFramesetterCreateWithAttributedString(text as CFAttributedString)
         let path = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
         var pages: [PageSlice] = []
-        var frames: [CTFrame] = []
         var offset = 0
         // Measure and draw the very same CTFrame; never reflow a page substring.
         repeat {
+            try Task.checkCancellation()
             let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: offset, length: 0), path, nil)
             let visible = CTFrameGetVisibleStringRange(frame)
             guard text.length == 0 || visible.length > 0 else { throw PaginationError.viewportTooSmall }
             pages.append(PageSlice(chapterID: chapter.id, pageIndex: pages.count,
                                    range: NSRange(location: offset, length: visible.length)))
-            frames.append(frame)
             offset += visible.length
         } while offset < text.length
-        return ChapterPagination(text: text, pages: pages, frames: frames, size: size)
+        return pages
     }
 
     private static func font(size: CGFloat, family: ReadingFontFamily) -> UIFont {

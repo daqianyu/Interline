@@ -17,7 +17,10 @@ public struct Chapter: Identifiable, Codable, Sendable, Hashable {
         ([title] + content).filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
-    public var readingLength: Int { readingText.utf16.count }
+    public var readingLength: Int {
+        let lengths = ([title] + content).filter { !$0.isEmpty }.map { $0.utf16.count }
+        return lengths.reduce(0, +) + max(0, lengths.count - 1) * 2
+    }
 
     public var characterCount: Int {
         content.reduce(0) { $0 + $1.count }
@@ -36,6 +39,8 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
     public var chapters: [Chapter]
     public var readingLocation: ReadingLocation?
     public var visibleEndOffset: Int?
+    public var contentFingerprint: String?
+    public var sourceEncoding: String?
     public var lastReadDate: Date
 
     public init(
@@ -58,6 +63,8 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
         self.currentPageIndex = currentPageIndex
         self.chapters = chapters
         self.lastReadDate = lastReadDate
+        self.contentFingerprint = nil
+        self.sourceEncoding = nil
         self.readingLocation = nil
         self.visibleEndOffset = nil
     }

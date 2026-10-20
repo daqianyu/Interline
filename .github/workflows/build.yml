@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - 'improve/**'
   pull_request:
   workflow_dispatch:
 
@@ -66,6 +65,13 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             2>&1 | tee build.log
 
+      - name: Export UI test screenshots
+        if: always()
+        run: |
+          if [ -d TestResults.xcresult ]; then
+            xcrun xcresulttool export attachments --path TestResults.xcresult --output-path UIScreenshots || true
+          fi
+
       - name: Upload verification results
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,3 +80,4 @@ jobs:
           path: |
             build.log
             TestResults.xcresult
+            UIScreenshots
