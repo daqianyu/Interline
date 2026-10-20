@@ -1,0 +1,93 @@
+name: iPhone Device Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/device-package.yml'
+      - 'scripts/package_device.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check iPhone SDK
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          python3 - <<'PY'
+          import subprocess
+          sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-version'], text=True).strip()
+          assert int(sdk.split('.')[0]) >= 27, f'iOS 27 SDK required, got {sdk}'
+          PY
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Archive for physical iPhone
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project Interline.xcodeproj \
+            -scheme Interline \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Interline.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION=0.1.0 \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            2>&1 | tee device-build.log
+
+      - name: Package and verify unsigned device IPA
+        run: bash scripts/package_device.sh
+
+      - name: Upload device package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Interline-iPhone-unsigned-${{ github.sha }}
+          path: |
+            dist/Interline-unsigned.ipa
+            dist/BUILD-INFO.json
+            dist/INSTALLATION.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload archive for subsequent signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Interline-device-archive-${{ github.sha }}
+          path: build/Interline.xcarchive
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Interline-device-build-log
+          path: device-build.log
+
+      - name: Explain signing status
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF_SUMMARY'
+          ## Device build ready; Apple signing still required
+          `Interline-unsigned.ipa` contains an arm64 **iPhone device** build, not a simulator build.
+          It is **not directly installable**: no Apple certificate or provisioning profile was supplied.
+          See `INSTALLATION.md` inside the artifact for the next step. Do not rename this file as a signed release.
+          EOF_SUMMARY

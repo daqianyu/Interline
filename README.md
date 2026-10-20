@@ -61,3 +61,12 @@ text selection and annotation, full-text search, file-backed book content,
 background/cancellable long-chapter layout, richer accessibility and native
 Liquid Glass refinement remain future work. `demo.html` is a separate prototype;
 it does not share persistence or runtime code with the iOS application.
+
+## iPhone device package
+
+Run the **iPhone Device Package** workflow on `main` to archive a physical-device
+Release build and download its unsigned IPA. Device packaging verifies arm64,
+iPhoneOS, the minimum OS and ZIP integrity, and includes build metadata.
+**An unsigned IPA is not directly installable.** See [installation and signing](docs/INSTALLATION.md).
+The project allows automatic signing for local Xcode device runs; CI disables
+signing explicitly. Apple credentials are not committed to the repository.
