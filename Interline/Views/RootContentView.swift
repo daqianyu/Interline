@@ -5,6 +5,7 @@ import SwiftUI
 
 public struct RootContentView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init() {}
 
@@ -24,7 +25,10 @@ public struct RootContentView: View {
             ToastOverlaysView()
                 .zIndex(100)
         }
-        .preferredColorScheme(appState.preferences.isDarkMode ? .dark : (appState.preferences.theme.isDark ? .dark : .light))
+        .preferredColorScheme((appState.preferences.followsSystemAppearance ?? true) ? nil : (appState.preferences.isDarkMode ? .dark : .light))
+        .transaction { transaction in
+            if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
+        }
     }
 }
 
@@ -32,6 +36,8 @@ public struct RootContentView: View {
 public struct ReaderContainerView: View {
     public let book: Book
     @EnvironmentObject private var appState: AppState
+
+    @ScaledMetric(relativeTo: .body) private var readingScale: CGFloat = 1
 
     public init(book: Book) {
         self.book = book
@@ -53,7 +59,7 @@ public struct ReaderContainerView: View {
                     ZStack {
                         Color.clear
                         if let layout = appState.pagination {
-                            ReaderPageView(pagination: layout, pageIndex: book.currentPageIndex)
+                            ReaderPageView(pagination: layout, pageIndex: book.currentPageIndex, annotations: appState.currentBookAnnotations)
                                 .accessibilityHidden(true)
                         } else if let error = appState.paginationError {
                             ContentUnavailableView(error, systemImage: "text.badge.xmark")
@@ -64,6 +70,9 @@ public struct ReaderContainerView: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        if appState.currentPage != nil { appState.isSelectionPresented = true; appState.areControlsVisible = false }
+                    })
                     .onTapGesture { point in handleTap(at: point, width: geometry.size.width) }
                     .gesture(DragGesture(minimumDistance: 30).onEnded { value in
                         guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
@@ -71,20 +80,24 @@ public struct ReaderContainerView: View {
                         if value.translation.width < 0 { appState.nextPage() }
                         else { appState.prevPage() }
                     })
+                    .accessibilityHint("轻点中间显示工具，左右翻页；长按可选字与标注")
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(appState.currentPageText)
+                    .accessibilityLabel(appState.paginationError ?? (appState.currentPageText.isEmpty ? "正在排版" : appState.currentPageText))
                     .accessibilityAction(named: Text("下一页")) { appState.nextPage() }
                     .accessibilityAction(named: Text("上一页")) { appState.prevPage() }
                     .accessibilityAction(named: Text("显示阅读工具")) { appState.toggleControls() }
+                    .accessibilityAction(named: Text("选字与标注")) { appState.isSelectionPresented = true }
+                    .accessibilityIdentifier("readerCanvas")
                     .onChange(of: geometry.size, initial: true) { _, size in
-                        appState.prepareReader(size: size)
+                        appState.prepareReader(size: size, scale: readingScale)
                     }
+                    .onChange(of: readingScale) { _, scale in appState.prepareReader(size: geometry.size, scale: scale) }
                 }
                 HStack {
                     Text(book.currentChapter?.title ?? "")
                         .lineLimit(1)
                     Spacer()
-                    Text("\(book.currentPageIndex + 1) / \(appState.pagination?.pages.count ?? 1)")
+                    Text(appState.pagination == nil ? "正在排版" : "\(book.currentPageIndex + 1) / \(appState.pagination?.pages.count ?? 1)")
                         .monospacedDigit()
                 }
                 .font(.caption2)
@@ -122,6 +135,22 @@ public struct ReaderContainerView: View {
                             .lineLimit(1)
 
                         Spacer()
+
+                        Button {
+                            appState.isBookSearchPresented = true
+                        } label: {
+                            Image(systemName: "magnifyingglass").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("搜索正文")
+                        .accessibilityIdentifier("readerSearch")
+                        Button {
+                            appState.isSelectionPresented = true
+                        } label: {
+                            Image(systemName: "text.cursor").frame(width: 44, height: 44)
+                        }
+                        .disabled(appState.currentPage == nil)
+                        .accessibilityLabel("选字与标注")
+                        .accessibilityIdentifier("readerSelection")
 
                         Button(action: {
                             appState.toggleBookmark()
@@ -164,6 +193,9 @@ public struct ReaderContainerView: View {
                                 .frame(width: 44, height: 44)
                         }
 
+                        .accessibilityLabel("目录、书签与笔记")
+                        .accessibilityIdentifier("readerTOC")
+
                         Spacer()
 
                         // Prev / Next Chapter Buttons
@@ -200,6 +232,8 @@ public struct ReaderContainerView: View {
                                 .foregroundColor(ThemeTokens.Colors.label)
                                 .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel("排版设置")
+                        .accessibilityIdentifier("readerSettings")
                     }
                     .padding(.horizontal, 16)
                     .frame(height: 50)
@@ -208,6 +242,14 @@ public struct ReaderContainerView: View {
                     .padding(.bottom, 24)
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .preferredColorScheme(theme.isDark ? .dark : .light)
+        .sheet(isPresented: $appState.isBookSearchPresented) { BookSearchView(book: book) }
+        .sheet(isPresented: $appState.isSelectionPresented) {
+            if let page = appState.currentPage {
+                TextSelectionSheet(bookID: book.id, chapterID: page.chapterID, page: page,
+                    text: appState.currentPageText, preferences: appState.preferences)
             }
         }
         .sheet(isPresented: $appState.isTOCPresented) {
@@ -237,97 +279,6 @@ public struct ReaderContainerView: View {
     }
 }
 
-// MARK: - Table of Contents & Bookmarks Sheet
-public struct TOCSheetView: View {
-    public let book: Book
-    @EnvironmentObject private var appState: AppState
-    @State private var selectedTab: Int = 0
-
-    public init(book: Book) {
-        self.book = book
-    }
-
-    public var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("分类", selection: $selectedTab) {
-                    Text("目录").tag(0)
-                    Text("书签 (\(appState.currentBookBookmarks.count))").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-
-                if selectedTab == 0 {
-                    List {
-                        ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, chapter in
-                            Button(action: {
-                                appState.jumpToChapter(index)
-                            }) {
-                                HStack {
-                                    Text(chapter.title)
-                                        .font(.system(size: 15, weight: index == book.currentChapterIndex ? .semibold : .regular))
-                                        .foregroundColor(index == book.currentChapterIndex ? ThemeTokens.Colors.link : ThemeTokens.Colors.label)
-                                    Spacer()
-                                    if index == book.currentChapterIndex {
-                                        Image(systemName: "bookmark.fill")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(ThemeTokens.Colors.link)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                } else {
-                    if appState.currentBookBookmarks.isEmpty {
-                        VStack(spacing: 8) {
-                            Spacer()
-                            Image(systemName: "bookmark")
-                                .font(.system(size: 36))
-                                .foregroundColor(ThemeTokens.Colors.tertiaryLabel)
-                            Text("暂无书签")
-                                .font(.system(size: 14))
-                                .foregroundColor(ThemeTokens.Colors.secondaryLabel)
-                            Spacer()
-                        }
-                    } else {
-                        List {
-                            ForEach(appState.currentBookBookmarks) { bookmark in
-                                Button(action: {
-                                    appState.jumpToBookmark(bookmark)
-                                }) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(bookmark.chapterTitle)
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundColor(ThemeTokens.Colors.label)
-                                        Text(bookmark.snippet)
-                                            .font(.system(size: 12))
-                                            .foregroundColor(ThemeTokens.Colors.secondaryLabel)
-                                            .lineLimit(2)
-                                    }
-                                    .padding(.vertical, 4)
-                                }
-                            }
-                        }
-                        .listStyle(.plain)
-                    }
-                }
-            }
-            .navigationTitle("目录与书签")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        appState.isTOCPresented = false
-                    }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Typography & Reading Settings Sheet
 public struct ReaderSettingsSheetView: View {
     @EnvironmentObject private var appState: AppState
@@ -338,6 +289,21 @@ public struct ReaderSettingsSheetView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    Toggle("正文跟随系统文字大小", isOn: Binding(
+                        get: { appState.preferences.usesDynamicType ?? true },
+                        set: { value in appState.updatePreferences { $0.usesDynamicType = value } }
+                    ))
+                    Picker("应用外观", selection: Binding(
+                        get: { (appState.preferences.followsSystemAppearance ?? true) ? 0 : (appState.preferences.isDarkMode ? 2 : 1) },
+                        set: { mode in appState.updatePreferences { $0.followsSystemAppearance = mode == 0; $0.isDarkMode = mode == 2 } }
+                    )) {
+                        Text("跟随系统").tag(0)
+                        Text("浅色").tag(1)
+                        Text("深色").tag(2)
+                    }
+                    Text("应用外观与下面的阅读纸张背景分别设置。")
+                        .font(.caption).foregroundStyle(.secondary)
+
                     // Font Size Adjuster
                     HStack {
                         Text("字号")

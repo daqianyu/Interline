@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Catalog writes happen only on library changes. Page turns write a small record.
 /// Existing v1 books/bookmarks remain readable; optional anchors migrate lazily.
@@ -10,24 +11,65 @@ public final class ReadingStorage {
     private let preferencesKey = "interline_saved_preferences_v1"
     private let bookmarksKey = "interline_saved_bookmarks_v1"
     private let recordPrefix = "interline_reading_record_v2_"
+    public nonisolated let directory: URL
+    private struct Catalog: Codable {
+        let version: Int
+        let books: [Book]
+    }
     private let defaults: UserDefaults
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     public private(set) var lastError: String?
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard, directory: URL? = nil) {
         self.defaults = defaults
+        self.directory = directory ?? (defaults === UserDefaults.standard
+            ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Interline", isDirectory: true)
+            : FileManager.default.temporaryDirectory.appendingPathComponent("InterlineTests-" + UUID().uuidString, isDirectory: true))
+    }
+
+    public var catalogURL: URL { directory.appendingPathComponent("catalog-v2.json") }
+
+    public nonisolated func contentsURL(bookID: String) -> URL {
+        let key = SHA256.hash(data: Data(bookID.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent("Contents", isDirectory: true).appendingPathComponent(key + ".json")
+    }
+
+    /// Large immutable contents can be staged by an import worker before saving metadata.
+    public nonisolated func stageContents(of book: Book, replacing: Bool = false) throws {
+        guard !book.chapters.isEmpty else { return }
+        let url = contentsURL(bookID: book.id)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if replacing || !FileManager.default.fileExists(atPath: url.path) {
+            try JSONEncoder().encode(book.chapters).write(to: url, options: .atomic)
+        }
     }
 
     public func loadBooks() -> [Book] {
-        // An explicitly saved empty array is a valid, intentionally empty shelf.
-        guard defaults.object(forKey: booksKey) != nil else {
-            let samples = SampleBooks.defaultLibrary
-            _ = saveBooks(samples)
-            return samples
+        let saved: [Book]
+        if FileManager.default.fileExists(atPath: catalogURL.path) {
+            do {
+                let catalog = try decoder.decode(Catalog.self, from: Data(contentsOf: catalogURL))
+                guard catalog.version == 2 else { throw CocoaError(.coderReadCorrupt) }
+                saved = catalog.books.map { metadata in
+                    var book = metadata
+                    do { book.chapters = try decoder.decode([Chapter].self, from: Data(contentsOf: contentsURL(bookID: book.id))) }
+                    catch { lastError = "《\(book.title)》正文无法读取，目录记录已保留" }
+                    return book
+                }
+            } catch {
+                lastError = "书架数据无法读取，原始文件已保留"
+                return []
+            }
+        } else if defaults.object(forKey: booksKey) != nil {
+            guard let legacy: [Book] = load([Book].self, key: booksKey) else { return [] }
+            saved = legacy
+            _ = saveBooks(legacy) // Preserve v1 data as a recovery source.
+        } else {
+            saved = SampleBooks.defaultLibrary
+            _ = saveBooks(saved)
         }
-        guard let books: [Book] = load([Book].self, key: booksKey) else { return [] }
-        return books.map { saved in
+        return saved.map { saved in
             var book = saved
             if let record = loadRecord(bookID: book.id) {
                 book.currentChapterIndex = record.chapterIndex
@@ -36,7 +78,6 @@ public final class ReadingStorage {
                 book.visibleEndOffset = record.visibleEndOffset
                 book.lastReadDate = record.lastReadDate
             }
-            // Prefer stable chapter IDs over mutable array positions.
             if let anchor = book.readingLocation,
                let index = book.chapters.firstIndex(where: { $0.id == anchor.chapterID }) {
                 book.currentChapterIndex = index
@@ -52,7 +93,51 @@ public final class ReadingStorage {
     }
 
     @discardableResult public func saveBooks(_ books: [Book]) -> Bool {
-        save(books, key: booksKey)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            for book in books { try stageContents(of: book) }
+            let metadata = books.map { book in
+                var value = book
+                value.chapters = []
+                return value
+            }
+            try encoder.encode(Catalog(version: 2, books: metadata)).write(to: catalogURL, options: .atomic)
+            return true
+        } catch {
+            lastError = "书架保存失败，原有目录未被替换"
+            return false
+        }
+    }
+
+    public func loadAnnotations() -> [ReadingAnnotation] {
+        let url = directory.appendingPathComponent("annotations-v1.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        do {
+            return try decoder.decode([ReadingAnnotation].self, from: Data(contentsOf: url)).filter {
+                $0.utf16Offset >= 0 && $0.utf16Length > 0 && $0.utf16Offset <= Int.max - $0.utf16Length
+            }
+        }
+        catch { lastError = "笔记无法读取，原始文件已保留"; return [] }
+    }
+
+    @discardableResult public func saveAnnotations(_ annotations: [ReadingAnnotation]) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try encoder.encode(annotations).write(to: directory.appendingPathComponent("annotations-v1.json"), options: .atomic)
+            return true
+        } catch { lastError = "笔记保存失败，请重试"; return false }
+    }
+
+    @discardableResult public func purgeContents(bookID: String) -> Bool {
+        do {
+            let url = contentsURL(bookID: bookID)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            defaults.removeObject(forKey: recordPrefix + bookID)
+            if let legacy = defaults.data(forKey: booksKey), let books = try? decoder.decode([Book].self, from: legacy) {
+                defaults.set(try encoder.encode(books.filter { $0.id != bookID }), forKey: booksKey)
+            }
+            return true
+        } catch { lastError = "正文文件未能删除，请重试"; return false }
     }
 
     public func loadPreferences() -> ReadingPreferences {

@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - 'improve/**'
   pull_request:
   workflow_dispatch:
 
@@ -66,11 +65,34 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             2>&1 | tee build.log
 
+      - name: Export UI test screenshots
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'PY_EXPORT'
+          from pathlib import Path
+          import subprocess
+          bundle = Path('TestResults.xcresult')
+          if (bundle / 'Info.plist').exists():
+              try:
+                  subprocess.run(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(bundle), '--output-path', 'UIScreenshots'], timeout=90, check=False)
+              except subprocess.TimeoutExpired:
+                  print('Screenshot export exceeded 90 seconds; the result bundle remains available.')
+          PY_EXPORT
+
       - name: Upload verification results
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: reader-verification
           path: |
             build.log
             TestResults.xcresult
+            UIScreenshots
+
+      - name: Upload cancelled build log
+        if: cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cancelled-build-log
+          path: build.log
+          retention-days: 7

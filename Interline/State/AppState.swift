@@ -6,6 +6,10 @@ public final class AppState: ObservableObject {
     @Published public var books: [Book] = []
     @Published public var activeBookId: String?
     @Published public var preferences = ReadingPreferences()
+    @Published public var annotations: [ReadingAnnotation] = []
+    @Published public var isBookSearchPresented = false
+    @Published public var isSelectionPresented = false
+    @Published public private(set) var isPaginating = false
     @Published public var bookmarks: [Bookmark] = []
     @Published public private(set) var pagination: ChapterPagination?
     @Published public private(set) var paginationError: String?
@@ -22,13 +26,31 @@ public final class AppState: ObservableObject {
     private var deletedBookBackup: (book: Book, index: Int)?
     private var toastDismissTask: Task<Void, Never>?
     private var viewportSize: CGSize = .zero
+    private var textScale: CGFloat = 1
     private let storage: ReadingStorage
+    private let usesBackgroundLayout: Bool
+    private var paginationTask: Task<Void, Never>?
+    private var paginationWorker: Task<[PageSlice], Error>?
+    private var layoutGeneration = UUID()
+    private struct LayoutKey: Hashable {
+        let bookID: String
+        let chapterID: String
+        let width: Int
+        let height: Int
+        let fontSize: CGFloat
+        let spacing: CGFloat
+        let family: ReadingFontFamily
+    }
+    private var rangeCache: [LayoutKey: [PageSlice]] = [:]
+    private var cacheOrder: [LayoutKey] = []
 
-    public init(storage: ReadingStorage = .shared) {
+    public init(storage: ReadingStorage = .shared, usesBackgroundLayout: Bool = true) {
         self.storage = storage
+        self.usesBackgroundLayout = usesBackgroundLayout
         books = storage.loadBooks()
         preferences = storage.loadPreferences()
         bookmarks = storage.loadBookmarks()
+        annotations = storage.loadAnnotations()
         if let error = storage.lastError { showToast(error) }
     }
 
@@ -40,6 +62,8 @@ public final class AppState: ObservableObject {
             checkSave(storage.saveRecord(for: book))
         }
     }
+
+    public var canUndoDelete: Bool { deletedBookBackup != nil }
 
     public var featuredBook: Book? { books.max(by: { $0.lastReadDate < $1.lastReadDate }) }
 
@@ -76,6 +100,9 @@ public final class AppState: ObservableObject {
 
     public func openBook(_ book: Book) {
         guard books.contains(where: { $0.id == book.id }) else { return }
+        cancelPagination()
+        isBookSearchPresented = false
+        isSelectionPresented = false
         activeBookId = book.id
         pagination = nil
         paginationError = nil
@@ -91,6 +118,9 @@ public final class AppState: ObservableObject {
     }
 
     public func closeReader() {
+        cancelPagination()
+        isBookSearchPresented = false
+        isSelectionPresented = false
         isReaderPresented = false
         areControlsVisible = false
         isTOCPresented = false
@@ -107,47 +137,102 @@ public final class AppState: ObservableObject {
     }
 
     /// The geometry comes from the actual body canvas, excluding chrome/safe areas.
-    public func prepareReader(size: CGSize) {
+    public func prepareReader(size: CGSize, scale: CGFloat = 1) {
         let size = CGSize(width: floor(size.width), height: floor(size.height))
         guard size.width > 0, size.height > 0 else { return }
-        guard size != viewportSize || pagination == nil else { return }
+        guard size != viewportSize || scale != textScale || pagination == nil else { return }
         viewportSize = size
+        textScale = scale
         rebuildPagination()
     }
 
+    private func cancelPagination() {
+        paginationTask?.cancel()
+        paginationWorker?.cancel()
+        layoutGeneration = UUID()
+        isPaginating = false
+    }
+
     private func rebuildPagination(goToLastPage: Bool = false) {
-        guard var book = activeBook, let chapter = book.currentChapter, viewportSize != .zero else { return }
-        do {
-            let layout = try ReaderPaginator.paginate(chapter: chapter, size: viewportSize, preferences: preferences)
-            pagination = layout
-            paginationError = nil
-            let pageIndex: Int
-            if goToLastPage {
-                pageIndex = layout.pages.count - 1
-                book.readingLocation = nil
-            } else if let location = book.readingLocation, location.chapterID == chapter.id {
-                pageIndex = layout.pageIndex(containing: location.utf16Offset)
-            } else {
-                // v1 never stored text anchors. Best-effort mapping of its page index.
-                pageIndex = min(max(0, book.currentPageIndex), layout.pages.count - 1)
+        cancelPagination()
+        guard let book = activeBook, let chapter = book.currentChapter, viewportSize != .zero else { return }
+        var effectivePreferences = self.preferences
+        if effectivePreferences.usesDynamicType ?? true {
+            effectivePreferences.fontSize *= textScale
+            effectivePreferences.lineSpacing *= textScale
+        }
+        let preferences = effectivePreferences
+        let size = viewportSize
+        let key = LayoutKey(bookID: book.id, chapterID: chapter.id, width: Int(size.width), height: Int(size.height),
+                            fontSize: preferences.fontSize, spacing: preferences.lineSpacing, family: preferences.fontFamily)
+        let generation = layoutGeneration
+        paginationError = nil
+        if let pages = rangeCache[key] {
+            installPagination(pages: pages, chapter: chapter, preferences: preferences, size: size, lastPage: goToLastPage)
+            return
+        }
+        if !usesBackgroundLayout {
+            do {
+                let pages = try ReaderPaginator.pageRanges(chapter: chapter, size: size, preferences: preferences)
+                remember(pages, for: key)
+                installPagination(pages: pages, chapter: chapter, preferences: preferences, size: size, lastPage: goToLastPage)
+            } catch { pagination = nil; paginationError = "当前区域无法容纳正文，请调整窗口或减小字号" }
+            return
+        }
+        pagination = nil
+        isPaginating = true
+        let worker = Task.detached(priority: .userInitiated) {
+            try ReaderPaginator.pageRanges(chapter: chapter, size: size, preferences: preferences)
+        }
+        paginationWorker = worker
+        paginationTask = Task { [weak self] in
+            do {
+                let pages = try await worker.value
+                guard !Task.isCancelled, let self, self.layoutGeneration == generation,
+                      self.activeBookId == book.id else { return }
+                self.remember(pages, for: key)
+                self.installPagination(pages: pages, chapter: chapter, preferences: preferences, size: size, lastPage: goToLastPage)
+                self.isPaginating = false
+            } catch {
+                guard !Task.isCancelled, let self, self.layoutGeneration == generation else { return }
+                self.pagination = nil
+                self.isPaginating = false
+                self.paginationError = "当前区域无法容纳正文，请调整窗口或减小字号"
             }
-            let page = layout.pages[pageIndex]
-            book.currentPageIndex = pageIndex
-            // Preserve the exact anchor on reflow, rather than drifting to earlier text
-            // after each font/size change. Navigation explicitly installs a new anchor.
-            if let anchor = book.readingLocation, anchor.chapterID == chapter.id {
-                book.readingLocation = ReadingLocation(chapterID: chapter.id,
-                    utf16Offset: min(max(0, anchor.utf16Offset), max(0, chapter.readingLength - 1)))
-            } else {
-                book.readingLocation = ReadingLocation(chapterID: chapter.id, utf16Offset: page.range.location)
-            }
-            book.visibleEndOffset = page.endOffset
-            activeBook = book
-        } catch {
-            pagination = nil
-            paginationError = "当前区域无法容纳正文，请调整窗口或减小字号"
         }
     }
+
+    private func remember(_ pages: [PageSlice], for key: LayoutKey) {
+        rangeCache[key] = pages
+        cacheOrder.removeAll { $0 == key }
+        cacheOrder.append(key)
+        while cacheOrder.count > 6 { rangeCache.removeValue(forKey: cacheOrder.removeFirst()) }
+    }
+
+    private func installPagination(pages: [PageSlice], chapter: Chapter, preferences: ReadingPreferences, size: CGSize, lastPage: Bool) {
+        guard var book = activeBook, book.currentChapter?.id == chapter.id else { return }
+        let layout = ChapterPagination(text: ReaderPaginator.attributedText(chapter: chapter, preferences: preferences), pages: pages, size: size)
+        pagination = layout
+        let index: Int
+        if lastPage {
+            index = pages.count - 1
+            book.readingLocation = nil
+        } else if let anchor = book.readingLocation, anchor.chapterID == chapter.id {
+            index = layout.pageIndex(containing: anchor.utf16Offset)
+        } else { index = min(max(0, book.currentPageIndex), pages.count - 1) }
+        let page = pages[index]
+        book.currentPageIndex = index
+        if let anchor = book.readingLocation, anchor.chapterID == chapter.id {
+            book.readingLocation = ReadingLocation(chapterID: chapter.id,
+                utf16Offset: min(max(0, anchor.utf16Offset), max(0, chapter.readingLength - 1)))
+        } else {
+            book.readingLocation = ReadingLocation(chapterID: chapter.id, utf16Offset: page.range.location)
+        }
+        book.visibleEndOffset = page.endOffset
+        activeBook = book
+    }
+
+    func waitForPagination() async { await paginationTask?.value }
 
     private func selectPage(_ index: Int) {
         guard var book = activeBook, let pagination, pagination.pages.indices.contains(index) else { return }
@@ -296,5 +381,126 @@ public final class AppState: ObservableObject {
 
     private func checkSave(_ success: Bool) {
         if !success { showToast(storage.lastError ?? "阅读数据保存失败") }
+    }
+}
+
+// MARK: - Library and anchored annotations
+extension AppState {
+    public var currentBookAnnotations: [ReadingAnnotation] {
+        annotations.filter { $0.bookID == activeBookId }.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    public func importBook(_ imported: Book) async -> Bool {
+        guard !imported.chapters.isEmpty else { showToast("没有可导入的正文"); return false }
+        guard !books.contains(where: { $0.id == imported.id && !$0.chapters.isEmpty }) else { showToast("这本书已经在书架中"); return false }
+        let repairing = books.contains(where: { $0.id == imported.id })
+        do {
+            let store = storage
+            try await Task.detached(priority: .userInitiated) { try store.stageContents(of: imported, replacing: repairing) }.value
+            guard !books.contains(where: { $0.id == imported.id && !$0.chapters.isEmpty }) else { return false }
+            var book = imported
+            if let record = storage.loadRecord(bookID: book.id), let anchor = record.location,
+               let index = book.chapters.firstIndex(where: { $0.id == anchor.chapterID }) {
+                book.currentChapterIndex = index
+                book.currentPageIndex = record.pageIndex
+                book.readingLocation = anchor
+                book.visibleEndOffset = record.visibleEndOffset
+            }
+            var next = books
+            if let index = next.firstIndex(where: { $0.id == book.id }) { next[index] = book }
+            else { next.append(book) }
+            guard storage.saveBooks(next) else { checkSave(false); return false }
+            books = next
+            showToast("已导入《\(book.title)》")
+            return true
+        } catch { showToast("正文保存失败：\(error.localizedDescription)"); return false }
+    }
+
+    public func updateBookMetadata(id: String, title: String, author: String) {
+        guard let index = books.firstIndex(where: { $0.id == id }) else { return }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        var next = books
+        next[index].title = title
+        next[index].author = author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未知作者" : author
+        if storage.saveBooks(next) { books = next; showToast("书籍信息已保存") }
+        else { checkSave(false) }
+    }
+
+    public func permanentlyDeleteBook(id: String) {
+        let next = books.filter { $0.id != id }
+        guard storage.saveBooks(next) else { checkSave(false); return }
+        books = next
+        if activeBookId == id { closeReader(); activeBookId = nil }
+        deletedBookBackup = nil
+        let remainingBookmarks = bookmarks.filter { $0.bookId != id }
+        let remainingNotes = annotations.filter { $0.bookID != id }
+        let bookmarksSaved = storage.saveBookmarks(remainingBookmarks)
+        let notesSaved = storage.saveAnnotations(remainingNotes)
+        if bookmarksSaved { bookmarks = remainingBookmarks }
+        if notesSaved { annotations = remainingNotes }
+        rangeCache = rangeCache.filter { $0.key.bookID != id }
+        cacheOrder.removeAll { $0.bookID == id }
+        let contentsRemoved = storage.purgeContents(bookID: id)
+        if bookmarksSaved && notesSaved && contentsRemoved { showToast("书籍与阅读记录已删除") }
+        else { showToast("书籍已移出，但部分数据清理失败，请重新导入后重试") }
+    }
+
+    public func jumpToLocation(bookID: String, location: ReadingLocation) {
+        guard let target = books.first(where: { $0.id == bookID }),
+              let index = target.chapters.firstIndex(where: { $0.id == location.chapterID }) else { return }
+        if !isReaderPresented || activeBookId != bookID { openBook(target) }
+        guard var book = activeBook else { return }
+        book.currentChapterIndex = index
+        book.currentPageIndex = 0
+        book.readingLocation = location
+        book.visibleEndOffset = nil
+        activeBook = book
+        isTOCPresented = false
+        isBookSearchPresented = false
+        rebuildPagination()
+    }
+
+    @discardableResult public func addAnnotation(bookID: String, chapterID: String, range: NSRange, note: String = "") -> Bool {
+        guard let chapter = books.first(where: { $0.id == bookID })?.chapters.first(where: { $0.id == chapterID }),
+              range.location >= 0, range.length > 0, range.location <= chapter.readingLength,
+              range.length <= chapter.readingLength - range.location,
+              Range(range, in: chapter.readingText) != nil else { return false }
+        let source = chapter.readingText as NSString
+        guard source.rangeOfComposedCharacterSequences(for: range) == range else { return false }
+        var next = annotations
+        if let index = next.firstIndex(where: { $0.bookID == bookID && $0.chapterID == chapterID && $0.range == range }) {
+            if !note.isEmpty { next[index].note = note }
+        } else {
+            next.append(ReadingAnnotation(bookID: bookID, chapterID: chapterID, range: range,
+                quote: (chapter.readingText as NSString).substring(with: range), note: note))
+        }
+        guard storage.saveAnnotations(next) else { checkSave(false); return false }
+        annotations = next
+        showToast(note.isEmpty ? "已添加标注" : "笔记已保存")
+        return true
+    }
+
+    public func updateAnnotation(id: String, note: String) {
+        var next = annotations
+        guard let index = next.firstIndex(where: { $0.id == id }) else { return }
+        next[index].note = note
+        if storage.saveAnnotations(next) { annotations = next } else { checkSave(false) }
+    }
+
+    public func removeAnnotation(id: String) {
+        let next = annotations.filter { $0.id != id }
+        if storage.saveAnnotations(next) { annotations = next } else { checkSave(false) }
+    }
+
+    public func removeBookmark(id: String) {
+        let next = bookmarks.filter { $0.id != id }
+        if storage.saveBookmarks(next) { bookmarks = next } else { checkSave(false) }
+    }
+
+    public func notesText(for bookID: String) -> String {
+        let title = books.first(where: { $0.id == bookID })?.title ?? "阅读笔记"
+        let notes = annotations.filter { $0.bookID == bookID }.sorted { $0.createdAt < $1.createdAt }
+        return ([title] + notes.map { "摘录：\($0.quote)\n笔记：\($0.note)" }).joined(separator: "\n\n")
     }
 }

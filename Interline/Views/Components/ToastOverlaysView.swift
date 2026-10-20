@@ -18,7 +18,7 @@ public struct ToastOverlaysView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(ThemeTokens.Colors.label)
 
-                    if message.contains("移出") {
+                    if appState.canUndoDelete && message.contains("移出") {
                         Button(action: {
                             withAnimation {
                                 appState.undoDelete()
@@ -40,3 +40,4 @@ public struct ToastOverlaysView: View {
         }
     }
 }
+

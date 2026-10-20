@@ -24,12 +24,21 @@ targets:
       - InterlineTests
     dependencies:
       - target: Interline
+  InterlineUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - InterlineUITests
+    dependencies:
+      - target: Interline
 schemes:
   Interline:
     build:
       targets:
         Interline: all
         InterlineTests: [test]
+        InterlineUITests: [test]
     test:
       targets:
         - InterlineTests
+        - InterlineUITests

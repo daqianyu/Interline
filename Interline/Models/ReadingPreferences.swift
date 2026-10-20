@@ -29,6 +29,8 @@ public struct ReadingPreferences: Codable, Sendable, Hashable {
     public var lineSpacing: CGFloat
     public var fontFamily: ReadingFontFamily
     public var theme: ReaderThemePreset
+    public var followsSystemAppearance: Bool?
+    public var usesDynamicType: Bool?
     public var isDarkMode: Bool
 
     public init(
@@ -43,8 +45,11 @@ public struct ReadingPreferences: Codable, Sendable, Hashable {
         self.fontFamily = fontFamily
         self.theme = theme
         self.isDarkMode = isDarkMode
+        self.followsSystemAppearance = true
+        self.usesDynamicType = true
     }
 
     public static let minFontSize: CGFloat = 13.0
     public static let maxFontSize: CGFloat = 28.0
 }
+

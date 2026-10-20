@@ -14,14 +14,18 @@ final class ReaderTests: XCTestCase {
     private func withStorage(_ action: (ReadingStorage, UserDefaults) throws -> Void) rethrows {
         let suite = "InterlineTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-        try action(ReadingStorage(defaults: defaults), defaults)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try action(ReadingStorage(defaults: defaults, directory: directory), defaults)
     }
 
     private func makeState(storage: ReadingStorage, chapters: [Chapter]? = nil) -> AppState {
         let book = Book(id: "test-book", title: "测试书", author: "测试", chapters: chapters ?? [chapter(), chapter("chapter-2")])
         storage.saveBooks([book])
-        let state = AppState(storage: storage)
+        let state = AppState(storage: storage, usesBackgroundLayout: false)
         state.openBook(state.books[0])
         state.prepareReader(size: canvas)
         return state
@@ -132,7 +136,7 @@ final class ReaderTests: XCTestCase {
             state.nextPage(); state.nextPage()
             state.updatePreferences { $0.lineSpacing = 12 }
             let anchor = state.activeBook?.readingLocation
-            let relaunched = AppState(storage: storage)
+            let relaunched = AppState(storage: storage, usesBackgroundLayout: false)
             relaunched.openBook(relaunched.books[0])
             relaunched.prepareReader(size: canvas)
             XCTAssertEqual(relaunched.activeBook?.readingLocation, anchor)
@@ -158,19 +162,19 @@ final class ReaderTests: XCTestCase {
 
     func testClearingShelfRemainsEmptyAfterRelaunchAndUndoPreservesOrder() {
         withStorage { storage, _ in
-            let state = AppState(storage: storage)
+            let state = AppState(storage: storage, usesBackgroundLayout: false)
             let originalIDs = state.books.map(\.id)
             state.deleteBook(id: originalIDs[0])
             state.undoDelete()
             XCTAssertEqual(state.books.map(\.id), originalIDs)
             for id in originalIDs { state.deleteBook(id: id) }
-            XCTAssertTrue(AppState(storage: storage).books.isEmpty)
+            XCTAssertTrue(AppState(storage: storage, usesBackgroundLayout: false).books.isEmpty)
         }
     }
 
     func testRestoringRemovedSampleKeepsItsReadingRecord() throws {
         try withStorage { storage, _ in
-            let state = AppState(storage: storage)
+            let state = AppState(storage: storage, usesBackgroundLayout: false)
             let id = state.books[0].id
             state.openBook(state.books[0])
             state.prepareReader(size: CGSize(width: 220, height: 180))
@@ -186,9 +190,10 @@ final class ReaderTests: XCTestCase {
     func testPageTurnsDoNotRewriteCatalog() {
         withStorage { storage, defaults in
             let state = makeState(storage: storage)
-            let catalog = defaults.data(forKey: "interline_saved_books_v1")
+            let catalog = try? Data(contentsOf: storage.catalogURL)
+            XCTAssertNotNil(catalog)
             state.nextPage(); state.nextPage()
-            XCTAssertEqual(defaults.data(forKey: "interline_saved_books_v1"), catalog)
+            XCTAssertEqual(try? Data(contentsOf: storage.catalogURL), catalog)
             XCTAssertNotNil(storage.loadRecord(bookID: "test-book")?.location)
         }
     }
@@ -205,7 +210,7 @@ final class ReaderTests: XCTestCase {
             [{"id":"bm","bookId":"legacy","chapterIndex":0,"chapterTitle":"旧章","pageIndex":1,"snippet":"旧摘要","createdAt":0}]
             """
             defaults.set(Data(old.utf8), forKey: "interline_saved_bookmarks_v1")
-            let state = AppState(storage: storage)
+            let state = AppState(storage: storage, usesBackgroundLayout: false)
             state.openBook(state.books[0])
             state.prepareReader(size: canvas)
             XCTAssertEqual(state.activeBook?.currentPageIndex, 1)
@@ -229,7 +234,7 @@ final class ReaderTests: XCTestCase {
         withStorage { storage, _ in
             let book = Book(id: "bad", title: "测试书", author: "作者", currentChapterIndex: -3, chapters: [chapter()])
             storage.saveBooks([book])
-            let state = AppState(storage: storage)
+            let state = AppState(storage: storage, usesBackgroundLayout: false)
             XCTAssertEqual(state.books[0].currentChapterIndex, 0)
             state.searchText = "  测试书  "
             XCTAssertEqual(state.filteredBooks.count, 1)
