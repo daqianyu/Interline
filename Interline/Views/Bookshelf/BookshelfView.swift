@@ -160,6 +160,7 @@ public struct BookshelfView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("continueReading")
+            .disabled(appState.isEditingBookshelf)
             .contextMenu {
                 Button("书籍详情", systemImage: "info.circle") { selectedBook = book }
             }
@@ -189,6 +190,7 @@ public struct BookshelfView: View {
                                 BookCoverView(book: book, width: 102, height: 140)
                             }
                             .buttonStyle(.plain)
+                            .disabled(appState.isEditingBookshelf)
                             .accessibilityIdentifier("bookCover-" + book.id)
                             .accessibilityLabel("\(book.title)，\(book.author)")
                             .contextMenu {
@@ -212,15 +214,18 @@ public struct BookshelfView: View {
                             }
                         }
 
-                        HStack(alignment: .top) {
-                            Text(book.title).font(.subheadline)
-                            Spacer(minLength: 0)
-                            Button { selectedBook = book } label: { Image(systemName: "ellipsis").frame(minWidth: 28, minHeight: 44) }
-                                .accessibilityLabel("\(book.title)的书籍详情")
+                        Button { selectedBook = book } label: {
+                            HStack(alignment: .top, spacing: 4) {
+                                Text(book.title).font(.subheadline).lineLimit(2)
+                                Spacer(minLength: 0)
+                                Image(systemName: "ellipsis").font(.caption)
+                            }
+                            .foregroundStyle(ThemeTokens.Colors.label)
+                            .frame(minHeight: 44, alignment: .top)
+                            .contentShape(Rectangle())
                         }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(ThemeTokens.Colors.label)
-                            .lineLimit(1)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(book.title)的书籍详情")
 
                         Text(String(format: "%.0f%%", book.progressPercentage))
                             .font(.system(size: 11, design: .monospaced))

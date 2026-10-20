@@ -3,27 +3,43 @@ import Foundation
 // MARK: - Chapter Model
 public struct Chapter: Identifiable, Codable, Sendable, Hashable {
     public let id: String
-    public var title: String
-    public var content: [String] // Paragraphs
+    public var title: String { didSet { refreshCounts() } }
+    public var content: [String] { didSet { refreshCounts() } }
+    private var cachedReadingLength = 0
+    private var cachedCharacterCount = 0
 
     public init(id: String, title: String, content: [String]) {
         self.id = id
         self.title = title
         self.content = content
+        refreshCounts()
     }
 
-    // One canonical string for pagination, progress, bookmarks and restoration.
+    private enum CodingKeys: String, CodingKey { case id, title, content }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try values.decode(String.self, forKey: .id),
+                  title: try values.decode(String.self, forKey: .title),
+                  content: try values.decode([String].self, forKey: .content))
+    }
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(title, forKey: .title)
+        try values.encode(content, forKey: .content)
+    }
+
+    // One canonical string for pagination, progress, search and annotation anchors.
     public var readingText: String {
         ([title] + content).filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
+    public var readingLength: Int { cachedReadingLength }
+    public var characterCount: Int { cachedCharacterCount }
 
-    public var readingLength: Int {
-        let lengths = ([title] + content).filter { !$0.isEmpty }.map { $0.utf16.count }
-        return lengths.reduce(0, +) + max(0, lengths.count - 1) * 2
-    }
-
-    public var characterCount: Int {
-        content.reduce(0) { $0 + $1.count }
+    private mutating func refreshCounts() {
+        let parts = ([title] + content).filter { !$0.isEmpty }
+        cachedReadingLength = parts.reduce(0) { $0 + $1.utf16.count } + max(0, parts.count - 1) * 2
+        cachedCharacterCount = content.reduce(0) { $0 + $1.count }
     }
 }
 

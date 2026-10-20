@@ -70,9 +70,9 @@ public struct ReaderContainerView: View {
                         }
                     }
                     .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 0.45) {
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in
                         if appState.currentPage != nil { appState.isSelectionPresented = true; appState.areControlsVisible = false }
-                    }
+                    })
                     .onTapGesture { point in handleTap(at: point, width: geometry.size.width) }
                     .gesture(DragGesture(minimumDistance: 30).onEnded { value in
                         guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
@@ -80,6 +80,7 @@ public struct ReaderContainerView: View {
                         if value.translation.width < 0 { appState.nextPage() }
                         else { appState.prevPage() }
                     })
+                    .accessibilityHint("轻点中间显示工具，左右翻页；长按可选字与标注")
                     .accessibilityIdentifier("readerCanvas")
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(appState.paginationError ?? (appState.currentPageText.isEmpty ? "正在排版" : appState.currentPageText))

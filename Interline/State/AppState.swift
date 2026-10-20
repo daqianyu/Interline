@@ -433,11 +433,15 @@ extension AppState {
         deletedBookBackup = nil
         let remainingBookmarks = bookmarks.filter { $0.bookId != id }
         let remainingNotes = annotations.filter { $0.bookID != id }
-        if storage.saveBookmarks(remainingBookmarks) { bookmarks = remainingBookmarks } else { checkSave(false) }
-        if storage.saveAnnotations(remainingNotes) { annotations = remainingNotes } else { checkSave(false) }
+        let bookmarksSaved = storage.saveBookmarks(remainingBookmarks)
+        let notesSaved = storage.saveAnnotations(remainingNotes)
+        if bookmarksSaved { bookmarks = remainingBookmarks }
+        if notesSaved { annotations = remainingNotes }
         rangeCache = rangeCache.filter { $0.key.bookID != id }
         cacheOrder.removeAll { $0.bookID == id }
-        if storage.purgeContents(bookID: id) { showToast("书籍与阅读记录已删除") } else { checkSave(false) }
+        let contentsRemoved = storage.purgeContents(bookID: id)
+        if bookmarksSaved && notesSaved && contentsRemoved { showToast("书籍与阅读记录已删除") }
+        else { showToast("书籍已移出，但部分数据清理失败，请重新导入后重试") }
     }
 
     public func jumpToLocation(bookID: String, location: ReadingLocation) {
@@ -460,6 +464,8 @@ extension AppState {
               range.location >= 0, range.length > 0, range.location <= chapter.readingLength,
               range.length <= chapter.readingLength - range.location,
               Range(range, in: chapter.readingText) != nil else { return false }
+        let source = chapter.readingText as NSString
+        guard source.rangeOfComposedCharacterSequences(for: range) == range else { return false }
         var next = annotations
         if let index = next.firstIndex(where: { $0.bookID == bookID && $0.chapterID == chapterID && $0.range == range }) {
             if !note.isEmpty { next[index].note = note }

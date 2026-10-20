@@ -61,7 +61,7 @@ final class ReaderFlowTests: XCTestCase {
         let ready = expectation(for: NSPredicate(format: "label != %@ AND label.length > 20", "正在排版"), evaluatedWith: canvas)
         wait(for: [ready], timeout: 15)
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        app.buttons["readerSelection"].tap()
+        canvas.press(forDuration: 0.8)
         XCTAssertTrue(app.textViews["selectableText"].waitForExistence(timeout: 5))
         screenshot(app, name: "Selection")
         app.buttons["完成"].tap()

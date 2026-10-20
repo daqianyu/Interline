@@ -33,7 +33,7 @@ struct TextSelectionSheet: View {
                     Button("写笔记", systemImage: "square.and.pencil") { writingNote = true }.disabled(selection.length == 0)
                 }
             }
-            .toolbar { ToolbarItem(placement: .bottomBar) { Text(selection.length > 0 ? "已选 \(selection.length) 个文本单位" : "请选择文字").font(.caption) } }
+            .toolbar { ToolbarItem(placement: .bottomBar) { Text(selection.length > 0 ? "已选 \(selectedQuote.count) 字" : "请选择文字").font(.caption) } }
             .sheet(isPresented: $writingNote) {
                 NavigationStack {
                     Form {

@@ -70,7 +70,8 @@ public enum ReaderPaginator {
         let path = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
         var pages: [PageSlice] = []
         var offset = 0
-        // Measure and draw the very same CTFrame; never reflow a page substring.
+        // Return exact ranges from a whole-chapter layout. The renderer builds its
+        // own frame from the same full text/styles, never a reflowed substring.
         repeat {
             try Task.checkCancellation()
             let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: offset, length: 0), path, nil)

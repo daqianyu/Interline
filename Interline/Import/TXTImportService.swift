@@ -59,7 +59,7 @@ public enum TXTImportService {
             result = Result {
                 let bytes = try coordinated.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
                 guard bytes <= maximumBytes else { throw TextImportError.tooLarge }
-                let data = try Data(contentsOf: coordinated, options: .mappedIfSafe)
+                let data = try Data(contentsOf: coordinated)
                 guard data.count <= maximumBytes else { throw TextImportError.tooLarge }
                 return data
             }

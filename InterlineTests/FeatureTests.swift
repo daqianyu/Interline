@@ -235,6 +235,32 @@ final class FeatureTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: storage.contentsURL(bookID: book.id).path))
     }
 
+    func testPermanentDeletionAlsoCleansLegacyRecoverySource() throws {
+        let (storage, defaults, name) = fixture()
+        defer { clean(storage, defaults, name) }
+        let book = try parse("第一章\n旧版备份里的正文")
+        defaults.set(try JSONEncoder().encode([book]), forKey: "interline_saved_books_v1")
+        let state = AppState(storage: storage)
+        state.permanentlyDeleteBook(id: book.id)
+        let legacy = try JSONDecoder().decode([Book].self, from: XCTUnwrap(defaults.data(forKey: "interline_saved_books_v1")))
+        XCTAssertTrue(legacy.isEmpty)
+    }
+
+    func testAnnotationsRejectSplitCombiningAndFamilyEmojiSequences() throws {
+        let (storage, defaults, name) = fixture()
+        defer { clean(storage, defaults, name) }
+        let book = try parse("第一章\ne\u{301}与👨‍👩‍👧‍👦")
+        storage.saveBooks([book])
+        let chapter = book.chapters[0]
+        let state = AppState(storage: storage)
+        let accent = (chapter.readingText as NSString).range(of: "e\u{301}")
+        XCTAssertFalse(state.addAnnotation(bookID: book.id, chapterID: chapter.id, range: NSRange(location: accent.location, length: 1)))
+        XCTAssertTrue(state.addAnnotation(bookID: book.id, chapterID: chapter.id, range: accent))
+        let family = (chapter.readingText as NSString).range(of: "👨‍👩‍👧‍👦")
+        XCTAssertFalse(state.addAnnotation(bookID: book.id, chapterID: chapter.id, range: NSRange(location: family.location, length: 2)))
+        XCTAssertTrue(state.addAnnotation(bookID: book.id, chapterID: chapter.id, range: family))
+    }
+
     func testRenamingDoesNotChangeChapterAnchorsOrContentsFile() throws {
         let (storage, defaults, name) = fixture()
         defer { clean(storage, defaults, name) }
@@ -296,6 +322,17 @@ final class FeatureTests: XCTestCase {
         legacy.removeValue(forKey: "followsSystemAppearance")
         defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "interline_saved_preferences_v1")
         XCTAssertEqual(storage.loadPreferences().fontSize, 17)
+    }
+
+    func testCachedChapterCountsSurviveDecodingAndMutation() throws {
+        var chapter = Chapter(id: "count", title: "标题", content: ["🐈与e\u{301}", "", "正文"])
+        XCTAssertEqual(chapter.readingLength, chapter.readingText.utf16.count)
+        let decoded = try JSONDecoder().decode(Chapter.self, from: JSONEncoder().encode(chapter))
+        XCTAssertEqual(decoded, chapter)
+        chapter.title = "改过的标题"
+        chapter.content.append("增加文字👨‍👩‍👧‍👦")
+        XCTAssertEqual(chapter.readingLength, chapter.readingText.utf16.count)
+        XCTAssertEqual(chapter.characterCount, chapter.content.reduce(0) { $0 + $1.count })
     }
 
     func testContentFileNameCannotEscapeStorageDirectory() {
