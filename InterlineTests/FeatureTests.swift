@@ -340,6 +340,6 @@ final class FeatureTests: XCTestCase {
         defer { clean(storage, defaults, name) }
         let url = storage.contentsURL(bookID: "../../elsewhere")
         XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "Contents")
-        XCTAssertEqual(url.deletingLastPathComponent().deletingLastPathComponent(), storage.directory)
+        XCTAssertEqual(url.deletingLastPathComponent().deletingLastPathComponent().pathComponents, storage.directory.pathComponents)
     }
 }

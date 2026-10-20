@@ -63,6 +63,8 @@ public final class AppState: ObservableObject {
         }
     }
 
+    public var canUndoDelete: Bool { deletedBookBackup != nil }
+
     public var featuredBook: Book? { books.max(by: { $0.lastReadDate < $1.lastReadDate }) }
 
     public var filteredBooks: [Book] {

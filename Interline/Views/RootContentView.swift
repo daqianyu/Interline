@@ -81,13 +81,13 @@ public struct ReaderContainerView: View {
                         else { appState.prevPage() }
                     })
                     .accessibilityHint("轻点中间显示工具，左右翻页；长按可选字与标注")
-                    .accessibilityIdentifier("readerCanvas")
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(appState.paginationError ?? (appState.currentPageText.isEmpty ? "正在排版" : appState.currentPageText))
                     .accessibilityAction(named: Text("下一页")) { appState.nextPage() }
                     .accessibilityAction(named: Text("上一页")) { appState.prevPage() }
                     .accessibilityAction(named: Text("显示阅读工具")) { appState.toggleControls() }
                     .accessibilityAction(named: Text("选字与标注")) { appState.isSelectionPresented = true }
+                    .accessibilityIdentifier("readerCanvas")
                     .onChange(of: geometry.size, initial: true) { _, size in
                         appState.prepareReader(size: size, scale: readingScale)
                     }

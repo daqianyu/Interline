@@ -21,7 +21,7 @@ final class ReaderFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["importBook"].firstMatch.waitForExistence(timeout: 15))
         screenshot(app, name: "Bookshelf")
         app.buttons["continueReading"].tap()
-        let canvas = app.otherElements["readerCanvas"]
+        let canvas = app.descendants(matching: .any)["readerCanvas"].firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 15))
         // Let initial pagination complete before bringing up the toolbars.
         let ready = expectation(for: NSPredicate(format: "label != %@ AND label.length > 20", "正在排版"), evaluatedWith: canvas)
@@ -37,7 +37,7 @@ final class ReaderFlowTests: XCTestCase {
     func testFullTextSearchReturnsToReader() {
         let app = launch()
         app.buttons["continueReading"].tap()
-        let canvas = app.otherElements["readerCanvas"]
+        let canvas = app.descendants(matching: .any)["readerCanvas"].firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 15))
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["readerSearch"].waitForExistence(timeout: 5))
@@ -56,7 +56,7 @@ final class ReaderFlowTests: XCTestCase {
     func testSelectionSurfaceAndNotesTabAreReachable() {
         let app = launch()
         app.buttons["continueReading"].tap()
-        let canvas = app.otherElements["readerCanvas"]
+        let canvas = app.descendants(matching: .any)["readerCanvas"].firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 15))
         let ready = expectation(for: NSPredicate(format: "label != %@ AND label.length > 20", "正在排版"), evaluatedWith: canvas)
         wait(for: [ready], timeout: 15)
