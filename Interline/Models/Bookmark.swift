@@ -8,6 +8,7 @@ public struct Bookmark: Identifiable, Codable, Sendable, Hashable {
     public let chapterTitle: String
     public let pageIndex: Int
     public let snippet: String
+    public let location: ReadingLocation?
     public let createdAt: Date
 
     public init(
@@ -17,7 +18,8 @@ public struct Bookmark: Identifiable, Codable, Sendable, Hashable {
         chapterTitle: String,
         pageIndex: Int,
         snippet: String,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        location: ReadingLocation? = nil
     ) {
         self.id = id
         self.bookId = bookId
@@ -26,5 +28,7 @@ public struct Bookmark: Identifiable, Codable, Sendable, Hashable {
         self.pageIndex = pageIndex
         self.snippet = snippet
         self.createdAt = createdAt
+        self.location = location
     }
 }
+

@@ -12,6 +12,13 @@ public struct Chapter: Identifiable, Codable, Sendable, Hashable {
         self.content = content
     }
 
+    // One canonical string for pagination, progress, bookmarks and restoration.
+    public var readingText: String {
+        ([title] + content).filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    public var readingLength: Int { readingText.utf16.count }
+
     public var characterCount: Int {
         content.reduce(0) { $0 + $1.count }
     }
@@ -27,6 +34,8 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
     public var currentChapterIndex: Int
     public var currentPageIndex: Int
     public var chapters: [Chapter]
+    public var readingLocation: ReadingLocation?
+    public var visibleEndOffset: Int?
     public var lastReadDate: Date
 
     public init(
@@ -49,6 +58,8 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
         self.currentPageIndex = currentPageIndex
         self.chapters = chapters
         self.lastReadDate = lastReadDate
+        self.readingLocation = nil
+        self.visibleEndOffset = nil
     }
 
     public var totalCharacters: Int {
@@ -61,15 +72,11 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
     }
 
     public var progressPercentage: Double {
-        guard !chapters.isEmpty else { return 0 }
-        let totalChars = totalCharacters
-        guard totalChars > 0 else {
-            return Double(currentChapterIndex) / Double(chapters.count) * 100.0
-        }
-        var readChars = 0
-        for i in 0..<min(currentChapterIndex, chapters.count) {
-            readChars += chapters[i].characterCount
-        }
-        return min(100.0, max(0.0, (Double(readChars) / Double(totalChars)) * 100.0))
+        guard chapters.indices.contains(currentChapterIndex) else { return 0 }
+        let total = chapters.reduce(0) { $0 + $1.readingLength }
+        guard total > 0 else { return 0 }
+        let previous = chapters.prefix(currentChapterIndex).reduce(0) { $0 + $1.readingLength }
+        let current = min(chapters[currentChapterIndex].readingLength, max(0, visibleEndOffset ?? 0))
+        return min(100, Double(previous + current) / Double(total) * 100)
     }
 }
