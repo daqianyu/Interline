@@ -79,12 +79,8 @@ public enum TXTImportService {
         guard !normalized.unicodeScalars.contains(where: { $0.value == 0 || ($0.value < 32 && ![9, 10].contains($0.value)) }) else {
             throw TextImportError.decoding
         }
-        // Content identity is independent of the original file name and line endings.
-        let fingerprint = SHA256.hash(data: Data(normalized.trimmingCharacters(in: .whitespacesAndNewlines).utf8))
-            .map { String(format: "%02x", $0) }.joined()
-        let bookID = "txt-" + fingerprint
         let heading = try NSRegularExpression(pattern:
-            #"^(?:第[零〇一二三四五六七八九十百千万两0-9]+[章节回卷部篇集].{0,50}|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s+[0-9]+.{0,50}|序章|序言|前言|楔子|尾声|后记)$"#)
+            #"^(?:第[零〇一二三四五六七八九十百千万两0-9]+[章节回卷部篇集].{0,50}|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s+[0-9]+.{0,50}|序章|序言|前言|楔子|尾声|后记|正文(?: · 分段 [0-9]+)?)$"#)
         var chapters: [Chapter] = []
         var title = "正文"
         var paragraphs: [String] = []
@@ -92,7 +88,7 @@ public enum TXTImportService {
         var part = 1
         func flush() {
             guard !paragraphs.isEmpty || title != "正文" else { return }
-            chapters.append(Chapter(id: "\(bookID)-\(chapters.count)", title: title, content: paragraphs))
+            chapters.append(Chapter(id: "pending-\(chapters.count)", title: title, content: paragraphs))
             paragraphs = []
             count = 0
         }
@@ -108,6 +104,7 @@ public enum TXTImportService {
                 // Bound individual paragraphs and chapter layout work for unstructured TXT.
                 var start = line.startIndex
                 while start < line.endIndex {
+                    try Task.checkCancellation()
                     let end = line.index(start, offsetBy: 4_000, limitedBy: line.endIndex) ?? line.endIndex
                     let piece = String(line[start..<end])
                     if count + piece.utf16.count > 32_000 && !paragraphs.isEmpty {
@@ -124,6 +121,14 @@ public enum TXTImportService {
         }
         flush()
         guard !chapters.isEmpty else { throw TextImportError.empty }
+        // Identity follows canonical paragraphs/chapters, so a TXT export/import
+        // round trip or different blank lines don't create a duplicate library item.
+        let canonical = chapters.map(\.readingText).joined(separator: "\n\n")
+        let fingerprint = SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
+        let bookID = "txt-" + fingerprint
+        chapters = chapters.enumerated().map { index, chapter in
+            Chapter(id: "\(bookID)-\(index)", title: chapter.title, content: chapter.content)
+        }
         var book = Book(id: bookID, title: (fileName as NSString).deletingPathExtension, author: "未知作者", chapters: chapters)
         book.contentFingerprint = fingerprint
         book.sourceEncoding = detected

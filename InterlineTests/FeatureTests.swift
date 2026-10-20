@@ -66,6 +66,16 @@ final class FeatureTests: XCTestCase {
         XCTAssertEqual(a.chapters.map(\.id), b.chapters.map(\.id))
     }
 
+    func testExportImportRoundTripKeepsIdentityAndText() throws {
+        for text in ["无章节的正文\n第二段🐈", "第一章 初见\n第一段\n\n第二段\n第二章\n结尾", String(repeating: "长篇正文🐈。", count: 6_000)] {
+            let original = try parse(text)
+            let exported = original.chapters.map(\.readingText).joined(separator: "\n\n")
+            let reimported = try parse(exported)
+            XCTAssertEqual(reimported.id, original.id)
+            XCTAssertEqual(reimported.chapters.map(\.readingText), original.chapters.map(\.readingText))
+        }
+    }
+
     func testUnstructuredLongTextIsBoundedWithoutLosingCharacters() throws {
         let text = String(repeating: "长文🐈", count: 18_000)
         let book = try parse(text)
