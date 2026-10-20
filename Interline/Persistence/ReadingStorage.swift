@@ -82,7 +82,7 @@ public final class ReadingStorage {
                let index = book.chapters.firstIndex(where: { $0.id == anchor.chapterID }) {
                 book.currentChapterIndex = index
             }
-            if !book.chapters.indices.contains(book.currentChapterIndex) {
+            if !book.chapters.isEmpty && !book.chapters.indices.contains(book.currentChapterIndex) {
                 book.currentChapterIndex = 0
                 book.currentPageIndex = 0
                 book.readingLocation = nil
@@ -95,6 +95,10 @@ public final class ReadingStorage {
     @discardableResult public func saveBooks(_ books: [Book]) -> Bool {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try preserveUnreadableFile(at: catalogURL) { data in
+                let catalog = try self.decoder.decode(Catalog.self, from: data)
+                guard catalog.version == 2 else { throw CocoaError(.coderReadCorrupt) }
+            }
             for book in books { try stageContents(of: book) }
             let metadata = books.map { book in
                 var value = book
@@ -106,6 +110,20 @@ public final class ReadingStorage {
         } catch {
             lastError = "书架保存失败，原有目录未被替换"
             return false
+        }
+    }
+
+    /// A failed read must never turn the only copy into an empty replacement.
+    /// Copy exact bytes first; if backup fails, propagate and refuse the write.
+    private func preserveUnreadableFile(at url: URL, validate: (Data) throws -> Void) throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let data = try Data(contentsOf: url)
+        do { try validate(data) }
+        catch {
+            let recovery = directory.appendingPathComponent("Recovery", isDirectory: true)
+            try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+            let backup = recovery.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+            try data.write(to: backup, options: .atomic)
         }
     }
 
@@ -123,7 +141,14 @@ public final class ReadingStorage {
     @discardableResult public func saveAnnotations(_ annotations: [ReadingAnnotation]) -> Bool {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try encoder.encode(annotations).write(to: directory.appendingPathComponent("annotations-v1.json"), options: .atomic)
+            let url = directory.appendingPathComponent("annotations-v1.json")
+            try preserveUnreadableFile(at: url) { data in
+                let saved = try self.decoder.decode([ReadingAnnotation].self, from: data)
+                guard saved.allSatisfy({ $0.utf16Offset >= 0 && $0.utf16Length > 0 && $0.utf16Offset <= Int.max - $0.utf16Length }) else {
+                    throw CocoaError(.coderReadCorrupt)
+                }
+            }
+            try encoder.encode(annotations).write(to: url, options: .atomic)
             return true
         } catch { lastError = "笔记保存失败，请重试"; return false }
     }

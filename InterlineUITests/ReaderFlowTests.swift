@@ -71,4 +71,29 @@ final class ReaderFlowTests: XCTestCase {
         app.segmentedControls.buttons["笔记 (0)"].tap()
         XCTAssertTrue(app.staticTexts["暂无标注或笔记"].waitForExistence(timeout: 5))
     }
+
+    func testSelectionTextRemainsStableWhenDeviceRotates() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = launch()
+        app.buttons["continueReading"].tap()
+        let canvas = app.descendants(matching: .any)["readerCanvas"].firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 15))
+        let ready = expectation(for: NSPredicate(format: "label != %@ AND label.length > 20", "正在排版"), evaluatedWith: canvas)
+        wait(for: [ready], timeout: 15)
+        canvas.press(forDuration: 0.8)
+        let selection = app.textViews["selectableText"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        let original = selection.value as? String
+        XCTAssertFalse(original?.isEmpty ?? true)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        XCTAssertEqual(selection.value as? String, original)
+        screenshot(app, name: "SelectionLandscape")
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertEqual(selection.value as? String, original)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+    }
+
 }

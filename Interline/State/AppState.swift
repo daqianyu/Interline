@@ -8,7 +8,7 @@ public final class AppState: ObservableObject {
     @Published public var preferences = ReadingPreferences()
     @Published public var annotations: [ReadingAnnotation] = []
     @Published public var isBookSearchPresented = false
-    @Published public var isSelectionPresented = false
+    @Published public var selectionSnapshot: ReadingSelectionSnapshot?
     @Published public private(set) var isPaginating = false
     @Published public var bookmarks: [Bookmark] = []
     @Published public private(set) var pagination: ChapterPagination?
@@ -99,10 +99,14 @@ public final class AppState: ObservableObject {
     public var isCurrentPageBookmarked: Bool { bookmarks.contains(where: matchesCurrentPage) }
 
     public func openBook(_ book: Book) {
-        guard books.contains(where: { $0.id == book.id }) else { return }
+        guard let saved = books.first(where: { $0.id == book.id }) else { return }
+        guard !saved.chapters.isEmpty else {
+            showToast("正文暂不可用，请重新导入同一 TXT 文件以恢复阅读")
+            return
+        }
         cancelPagination()
         isBookSearchPresented = false
-        isSelectionPresented = false
+        selectionSnapshot = nil
         activeBookId = book.id
         pagination = nil
         paginationError = nil
@@ -120,12 +124,19 @@ public final class AppState: ObservableObject {
     public func closeReader() {
         cancelPagination()
         isBookSearchPresented = false
-        isSelectionPresented = false
+        selectionSnapshot = nil
         isReaderPresented = false
         areControlsVisible = false
         isTOCPresented = false
         isSettingsPresented = false
         pagination = nil
+    }
+
+    public func presentTextSelection() {
+        guard let book = activeBook, let page = currentPage else { return }
+        selectionSnapshot = ReadingSelectionSnapshot(bookID: book.id, page: page,
+            text: currentPageText, preferences: preferences)
+        areControlsVisible = false
     }
 
     public func toggleControls() {
@@ -335,29 +346,39 @@ public final class AppState: ObservableObject {
 
     public func deleteBook(id: String) {
         guard let index = books.firstIndex(where: { $0.id == id }) else { return }
-        deletedBookBackup = (books[index], index)
-        let title = books[index].title
-        books.remove(at: index)
+        let book = books[index]
+        var next = books
+        next.remove(at: index)
+        guard storage.saveBooks(next) else { checkSave(false); return }
+        deletedBookBackup = (book, index)
+        books = next
         if activeBookId == id { closeReader(); activeBookId = nil }
         // Reading records and bookmarks are retained for undo; no content is purged.
-        if storage.saveBooks(books) { showToast("已从书架移出《\(title)》") }
-        else { checkSave(false) }
+        showToast("已从书架移出《\(book.title)》")
     }
 
     public func undoDelete() {
         guard let backup = deletedBookBackup else { return }
-        books.insert(backup.book, at: min(backup.index, books.count))
-        checkSave(storage.saveBooks(books))
+        var next = books
+        if !next.contains(where: { $0.id == backup.book.id }) {
+            next.insert(backup.book, at: min(backup.index, next.count))
+        }
+        guard storage.saveBooks(next) else {
+            showToast("撤销移出失败，请重试：" + (storage.lastError ?? "书架保存失败"))
+            return
+        }
+        books = next
         deletedBookBackup = nil
         toastDismissTask?.cancel()
         toastMessage = nil
     }
 
     public func restoreSampleBooks() {
-        for book in SampleBooks.defaultLibrary where !books.contains(where: { $0.id == book.id }) {
-            books.append(book)
+        var next = books
+        for book in SampleBooks.defaultLibrary where !next.contains(where: { $0.id == book.id }) {
+            next.append(book)
         }
-        if storage.saveBooks(books) { books = storage.loadBooks() }
+        if storage.saveBooks(next) { books = storage.loadBooks() }
         else { checkSave(false) }
     }
 

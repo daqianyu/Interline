@@ -123,3 +123,16 @@ iPhoneOS, the minimum OS and ZIP integrity, and includes build metadata.
 **An unsigned IPA is not directly installable.** See [installation and signing](docs/INSTALLATION.md).
 The project allows automatic signing for local Xcode device runs; CI disables
 signing explicitly. Apple credentials are not committed to the repository.
+
+
+## Recovery safeguards
+
+Before replacing an unreadable catalog or annotation file, Interline saves its
+exact bytes under `Application Support/Interline/Recovery` with a unique name.
+If that backup cannot be saved, the original file is left untouched and the
+operation reports failure. Recovery copies are retained for manual recovery;
+the app does not claim to reconstruct a malformed file automatically.
+Missing book contents preserve saved reading anchors and prompt reimport rather
+than opening an empty reader. Shelf removal and undo update the visible library
+only after the catalog is saved. Text selection captures an immutable page and
+anchor so orientation or typography changes cannot move an in-progress note.
