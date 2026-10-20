@@ -20,7 +20,7 @@ public struct BookshelfView: View {
                 VStack(alignment: .leading, spacing: ThemeTokens.Spacing.xl) {
                     
                     // Search bar when active or always available
-                    if !appState.searchText.isEmpty || appState.isEditingBookshelf {
+                    if appState.isSearchPresented || appState.isEditingBookshelf {
                         searchBar
                     }
 
@@ -30,7 +30,19 @@ public struct BookshelfView: View {
                     }
 
                     // 2. Collection of saved books
-                    savedBooksSection
+                    if appState.books.isEmpty {
+                        ContentUnavailableView {
+                            Label("书架是空的", systemImage: "books.vertical")
+                        } description: {
+                            Text("添加示例书，开始阅读。")
+                        } actions: {
+                            Button("添加示例书") { appState.restoreSampleBooks() }
+                        }
+                    } else if appState.filteredBooks.isEmpty {
+                        ContentUnavailableView.search(text: appState.searchText)
+                    } else {
+                        savedBooksSection
+                    }
 
                 }
                 .padding(.horizontal, ThemeTokens.Spacing.lg)
@@ -44,11 +56,8 @@ public struct BookshelfView: View {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: {
                         withAnimation {
-                            if appState.searchText.isEmpty {
-                                appState.searchText = " "
-                            } else {
-                                appState.searchText = ""
-                            }
+                            appState.isSearchPresented.toggle()
+                            if !appState.isSearchPresented { appState.searchText = "" }
                         }
                     }) {
                         Image(systemName: "magnifyingglass")
@@ -206,3 +215,4 @@ public struct BookshelfView: View {
         }
     }
 }
+

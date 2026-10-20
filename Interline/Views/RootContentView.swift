@@ -47,54 +47,53 @@ public struct ReaderContainerView: View {
             theme.backgroundColor
                 .ignoresSafeArea()
 
-            // 2. Reading Text Canvas & Tap Detection
-            VStack(spacing: 0) {
-                // Header spacing placeholder
-                Spacer().frame(height: 54)
-
-                // Chapter Content
-                if let currentChapter = book.currentChapter {
-                    VStack(alignment: .leading, spacing: appState.preferences.lineSpacing + 8) {
-                        // Chapter Title (First page only)
-                        if book.currentPageIndex == 0 {
-                            Text(currentChapter.title)
-                                .font(appState.preferences.fontFamily.font(size: appState.preferences.fontSize + 4).weight(.semibold))
-                                .foregroundColor(theme.textColor)
-                                .padding(.bottom, 6)
+            // Measure precisely the canvas that will draw Core Text's frames.
+            VStack(spacing: 12) {
+                GeometryReader { geometry in
+                    ZStack {
+                        Color.clear
+                        if let layout = appState.pagination {
+                            ReaderPageView(pagination: layout, pageIndex: book.currentPageIndex)
+                                .accessibilityHidden(true)
+                        } else if let error = appState.paginationError {
+                            ContentUnavailableView(error, systemImage: "text.badge.xmark")
+                        } else if book.chapters.isEmpty {
+                            ContentUnavailableView("本书暂无章节", systemImage: "book.closed")
+                        } else {
+                            ProgressView("正在排版")
                         }
-
-                        // Paragraphs
-                        ForEach(Array(currentChapter.content.enumerated()), id: \.offset) { _, para in
-                            Text(para)
-                                .font(appState.preferences.fontFamily.font(size: appState.preferences.fontSize))
-                                .foregroundColor(theme.textColor)
-                                .lineSpacing(appState.preferences.lineSpacing)
-                                .multilineTextAlignment(.leading)
-                        }
-
-                        Spacer()
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 12)
+                    .contentShape(Rectangle())
+                    .onTapGesture { point in handleTap(at: point, width: geometry.size.width) }
+                    .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+                        guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
+                        if appState.areControlsVisible { appState.hideControls(); return }
+                        if value.translation.width < 0 { appState.nextPage() }
+                        else { appState.prevPage() }
+                    })
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(appState.currentPageText)
+                    .accessibilityAction(named: Text("下一页")) { appState.nextPage() }
+                    .accessibilityAction(named: Text("上一页")) { appState.prevPage() }
+                    .accessibilityAction(named: Text("显示阅读工具")) { appState.toggleControls() }
+                    .onChange(of: geometry.size, initial: true) { _, size in
+                        appState.prepareReader(size: size)
+                    }
                 }
-
-                // Bottom Page Number & Chapter Info
                 HStack {
                     Text(book.currentChapter?.title ?? "")
                         .lineLimit(1)
                     Spacer()
-                    Text("第 \(book.currentPageIndex + 1) 页")
-                        .font(.system(size: 10, design: .monospaced))
+                    Text("\(book.currentPageIndex + 1) / \(appState.pagination?.pages.count ?? 1)")
+                        .monospacedDigit()
                 }
-                .font(.system(size: 11))
-                .foregroundColor(theme.secondaryTextColor)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
+                .font(.caption2)
+                .foregroundStyle(theme.secondaryTextColor)
+                .accessibilityLabel("本章第 \(book.currentPageIndex + 1) 页，共 \(appState.pagination?.pages.count ?? 1) 页")
             }
-            .contentShape(Rectangle())
-            .onTapGesture { location in
-                handleTap(at: location)
-            }
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
 
             // 3. Top Floating Glass Navigation Header
             if appState.areControlsVisible {
@@ -149,11 +148,8 @@ public struct ReaderContainerView: View {
                 VStack {
                     Spacer()
 
-                    // Secondary Progress Indicator (10pt, non-intercepting)
-                    Text(String(format: "全书进度 · %.1f%%", book.progressPercentage))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(ThemeTokens.Colors.secondaryLabel)
-                        .padding(.bottom, 6)
+                    ReaderProgressView()
+                        .padding(.horizontal, ThemeTokens.Spacing.safeInsetSides)
 
                     HStack {
                         // TOC Button
@@ -176,6 +172,7 @@ public struct ReaderContainerView: View {
                                     .foregroundColor(ThemeTokens.Colors.label)
                                     .frame(width: 44, height: 44)
                             }
+                            .accessibilityLabel("上一章")
                             .disabled(book.currentChapterIndex <= 0)
                             .opacity(book.currentChapterIndex <= 0 ? 0.35 : 1.0)
 
@@ -185,6 +182,7 @@ public struct ReaderContainerView: View {
                                     .foregroundColor(ThemeTokens.Colors.label)
                                     .frame(width: 44, height: 44)
                             }
+                            .accessibilityLabel("下一章")
                             .disabled(book.currentChapterIndex >= book.chapters.count - 1)
                             .opacity(book.currentChapterIndex >= book.chapters.count - 1 ? 0.35 : 1.0)
                         }
@@ -217,20 +215,19 @@ public struct ReaderContainerView: View {
         }
         .sheet(isPresented: $appState.isSettingsPresented) {
             ReaderSettingsSheetView()
-                .presentationDetents([.height(340)])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
     }
 
-    private func handleTap(at point: CGPoint) {
-        let screenWidth = UIScreen.main.bounds.width
+    private func handleTap(at point: CGPoint, width: CGFloat) {
         if appState.areControlsVisible {
             appState.hideControls()
             return
         }
-        if point.x < screenWidth * 0.25 {
+        if point.x < width * 0.25 {
             appState.prevPage()
-        } else if point.x > screenWidth * 0.75 {
+        } else if point.x > width * 0.75 {
             appState.nextPage()
         } else {
             appState.toggleControls()
@@ -297,7 +294,7 @@ public struct TOCSheetView: View {
                         List {
                             ForEach(appState.currentBookBookmarks) { bookmark in
                                 Button(action: {
-                                    appState.jumpToChapter(bookmark.chapterIndex)
+                                    appState.jumpToBookmark(bookmark)
                                 }) {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(bookmark.chapterTitle)
@@ -377,6 +374,20 @@ public struct ReaderSettingsSheetView: View {
                     }
                 }
 
+                HStack {
+                    Text("行距")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ThemeTokens.Colors.secondaryLabel)
+                    Slider(value: Binding(
+                        get: { appState.preferences.lineSpacing },
+                        set: { spacing in appState.updatePreferences { $0.lineSpacing = spacing } }
+                    ), in: 0...20, step: 2)
+                    .accessibilityLabel("行距")
+                    Text("\(Int(appState.preferences.lineSpacing))")
+                        .monospacedDigit()
+                        .frame(minWidth: 24)
+                }
+
                 // Font Family (黑体 vs 宋体)
                 HStack {
                     Text("字体")
@@ -407,16 +418,20 @@ public struct ReaderSettingsSheetView: View {
 
                     HStack(spacing: 12) {
                         ForEach(ReaderThemePreset.allCases) { theme in
-                            Circle()
+                            Button {
+                                appState.updatePreferences { $0.theme = theme }
+                            } label: {
+                                Circle()
                                 .fill(theme.backgroundColor)
                                 .frame(width: 30, height: 30)
                                 .overlay(
                                     Circle()
                                         .stroke(appState.preferences.theme == theme ? ThemeTokens.Colors.link : Color.gray.opacity(0.3), lineWidth: appState.preferences.theme == theme ? 2.5 : 1)
                                 )
-                                .onTapGesture {
-                                    appState.updatePreferences { $0.theme = theme }
-                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(theme.displayName)
+                            .accessibilityAddTraits(appState.preferences.theme == theme ? .isSelected : [])
                         }
                     }
                 }
@@ -437,3 +452,4 @@ public struct ReaderSettingsSheetView: View {
         }
     }
 }
+

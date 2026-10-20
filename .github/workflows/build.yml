@@ -1,17 +1,38 @@
-name: iOS 27 Build Verification
+name: iOS 27 Build and Reader Tests
 
 on:
   push:
     branches:
       - main
+      - 'improve/**'
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: macos-15
+    # GitHub's documented Xcode 27 image; macos-15 defaults to Xcode 16.4.
+    runs-on: xcode-27
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Verify toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          python3 - <<'PY'
+          import subprocess
+          sdk = subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip()
+          assert int(sdk.split('.')[0]) >= 27, f'iOS 27 SDK required, found {sdk}'
+          PY
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -19,22 +40,37 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build for iOS Simulator
+      - name: Select available iPhone simulator
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '--json']))['devices']
+          candidates = [d for runtime, ds in devices.items() if 'iOS-27' in runtime for d in ds if d['name'].startswith('iPhone') and d.get('isAvailable')]
+          if not candidates:
+              raise SystemExit('No available iOS 27 iPhone simulator')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('READER_SIMULATOR_ID=' + candidates[0]['udid'] + '\n')
+          PY
+
+      - name: Build and test reader
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test \
             -project Interline.xcodeproj \
             -scheme Interline \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "platform=iOS Simulator,id=$READER_SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             2>&1 | tee build.log
 
-      - name: Upload build.log
+      - name: Upload verification results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: reader-verification
+          path: |
+            build.log
+            TestResults.xcresult
