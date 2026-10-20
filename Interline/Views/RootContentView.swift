@@ -131,6 +131,8 @@ public struct ReaderContainerView: View {
                                 .foregroundColor(appState.isCurrentPageBookmarked ? ThemeTokens.Colors.link : ThemeTokens.Colors.label)
                                 .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel(appState.isCurrentPageBookmarked ? "移除书签" : "添加书签")
+                        .disabled(appState.currentPage == nil)
                     }
                     .padding(.horizontal, 16)
                     .frame(height: 50)
@@ -334,112 +336,115 @@ public struct ReaderSettingsSheetView: View {
 
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                // Font Size Adjuster
-                HStack {
-                    Text("字号")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ThemeTokens.Colors.secondaryLabel)
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Font Size Adjuster
+                    HStack {
+                        Text("字号")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ThemeTokens.Colors.secondaryLabel)
 
-                    Spacer()
+                        Spacer()
 
-                    HStack(spacing: 20) {
-                        Button(action: {
-                            if appState.preferences.fontSize > ReadingPreferences.minFontSize {
-                                appState.updatePreferences { $0.fontSize -= 1.0 }
+                        HStack(spacing: 20) {
+                            Button(action: {
+                                if appState.preferences.fontSize > ReadingPreferences.minFontSize {
+                                    appState.updatePreferences { $0.fontSize -= 1.0 }
+                                }
+                            }) {
+                                Text("A-")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .frame(width: 44, height: 36)
+                                    .background(ThemeTokens.Colors.tertiarySystemBackground)
+                                    .cornerRadius(8)
                             }
-                        }) {
-                            Text("A-")
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(width: 44, height: 36)
-                                .background(ThemeTokens.Colors.tertiarySystemBackground)
-                                .cornerRadius(8)
-                        }
 
-                        Text("\(Int(appState.preferences.fontSize))")
-                            .font(.system(size: 14, design: .monospaced))
+                            Text("\(Int(appState.preferences.fontSize))")
+                                .font(.system(size: 14, design: .monospaced))
+                                .frame(minWidth: 24)
+
+                            Button(action: {
+                                if appState.preferences.fontSize < ReadingPreferences.maxFontSize {
+                                    appState.updatePreferences { $0.fontSize += 1.0 }
+                                }
+                            }) {
+                                Text("A+")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .frame(width: 44, height: 36)
+                                    .background(ThemeTokens.Colors.tertiarySystemBackground)
+                                    .cornerRadius(8)
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text("行距")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(ThemeTokens.Colors.secondaryLabel)
+                        Slider(value: Binding(
+                            get: { appState.preferences.lineSpacing },
+                            set: { spacing in appState.updatePreferences { $0.lineSpacing = spacing } }
+                        ), in: 0...20, step: 2)
+                        .accessibilityLabel("行距")
+                        Text("\(Int(appState.preferences.lineSpacing))")
+                            .monospacedDigit()
                             .frame(minWidth: 24)
+                    }
 
-                        Button(action: {
-                            if appState.preferences.fontSize < ReadingPreferences.maxFontSize {
-                                appState.updatePreferences { $0.fontSize += 1.0 }
+                    // Font Family (黑体 vs 宋体)
+                    HStack {
+                        Text("字体")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ThemeTokens.Colors.secondaryLabel)
+
+                        Spacer()
+
+                        Picker("字体", selection: Binding(
+                            get: { appState.preferences.fontFamily },
+                            set: { newFont in appState.updatePreferences { $0.fontFamily = newFont } }
+                        )) {
+                            ForEach(ReadingFontFamily.allCases) { font in
+                                Text(font.displayName).tag(font)
                             }
-                        }) {
-                            Text("A+")
-                                .font(.system(size: 17, weight: .semibold))
-                                .frame(width: 44, height: 36)
-                                .background(ThemeTokens.Colors.tertiarySystemBackground)
-                                .cornerRadius(8)
                         }
+                        .pickerStyle(.segmented)
+                        .frame(width: 140)
                     }
-                }
 
-                HStack {
-                    Text("行距")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(ThemeTokens.Colors.secondaryLabel)
-                    Slider(value: Binding(
-                        get: { appState.preferences.lineSpacing },
-                        set: { spacing in appState.updatePreferences { $0.lineSpacing = spacing } }
-                    ), in: 0...20, step: 2)
-                    .accessibilityLabel("行距")
-                    Text("\(Int(appState.preferences.lineSpacing))")
-                        .monospacedDigit()
-                        .frame(minWidth: 24)
-                }
+                    // Themes Preset Swatches
+                    HStack {
+                        Text("背景")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ThemeTokens.Colors.secondaryLabel)
 
-                // Font Family (黑体 vs 宋体)
-                HStack {
-                    Text("字体")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ThemeTokens.Colors.secondaryLabel)
+                        Spacer()
 
-                    Spacer()
-
-                    Picker("字体", selection: Binding(
-                        get: { appState.preferences.fontFamily },
-                        set: { newFont in appState.updatePreferences { $0.fontFamily = newFont } }
-                    )) {
-                        ForEach(ReadingFontFamily.allCases) { font in
-                            Text(font.displayName).tag(font)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 140)
-                }
-
-                // Themes Preset Swatches
-                HStack {
-                    Text("背景")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ThemeTokens.Colors.secondaryLabel)
-
-                    Spacer()
-
-                    HStack(spacing: 12) {
-                        ForEach(ReaderThemePreset.allCases) { theme in
-                            Button {
-                                appState.updatePreferences { $0.theme = theme }
-                            } label: {
-                                Circle()
-                                .fill(theme.backgroundColor)
-                                .frame(width: 30, height: 30)
-                                .overlay(
+                        HStack(spacing: 12) {
+                            ForEach(ReaderThemePreset.allCases) { theme in
+                                Button {
+                                    appState.updatePreferences { $0.theme = theme }
+                                } label: {
                                     Circle()
-                                        .stroke(appState.preferences.theme == theme ? ThemeTokens.Colors.link : Color.gray.opacity(0.3), lineWidth: appState.preferences.theme == theme ? 2.5 : 1)
-                                )
+                                    .fill(theme.backgroundColor)
+                                    .frame(width: 30, height: 30)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(appState.preferences.theme == theme ? ThemeTokens.Colors.link : Color.gray.opacity(0.3), lineWidth: appState.preferences.theme == theme ? 2.5 : 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(theme.displayName)
+                                .accessibilityAddTraits(appState.preferences.theme == theme ? .isSelected : [])
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(theme.displayName)
-                            .accessibilityAddTraits(appState.preferences.theme == theme ? .isSelected : [])
                         }
                     }
-                }
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
             .navigationTitle("排版设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

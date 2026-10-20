@@ -44,7 +44,7 @@ The deployment target is iOS 27, as required by `AGENTS.md`.
 `InterlineTests` covers UTF-16/grapheme boundaries, complete pagination coverage,
 empty chapters, small viewports, page/paragraph changes, typography and resize
 anchors, chapter boundaries, bookmarks, progress seeking, relaunch, v1 decoding,
-empty shelves, invalid indexes, search and independent record writes.
+empty shelves, restored reading records, invalid indexes, search and independent record writes.
 
 Before release, also check on a physical device:
 

@@ -22,6 +22,13 @@ struct ReaderProgressView: View {
             })
             .disabled(appState.pagination == nil)
             .accessibilityLabel("全书阅读进度")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: appState.jumpToProgress(min(1, currentFraction + 0.05))
+                case .decrement: appState.jumpToProgress(max(0, currentFraction - 0.05))
+                @unknown default: break
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

@@ -272,7 +272,8 @@ public final class AppState: ObservableObject {
         for book in SampleBooks.defaultLibrary where !books.contains(where: { $0.id == book.id }) {
             books.append(book)
         }
-        checkSave(storage.saveBooks(books))
+        if storage.saveBooks(books) { books = storage.loadBooks() }
+        else { checkSave(false) }
     }
 
     public func showToast(_ message: String) {

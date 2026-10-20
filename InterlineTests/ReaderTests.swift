@@ -168,6 +168,21 @@ final class ReaderTests: XCTestCase {
         }
     }
 
+    func testRestoringRemovedSampleKeepsItsReadingRecord() throws {
+        try withStorage { storage, _ in
+            let state = AppState(storage: storage)
+            let id = state.books[0].id
+            state.openBook(state.books[0])
+            state.prepareReader(size: CGSize(width: 220, height: 180))
+            state.nextPage()
+            let anchor = try XCTUnwrap(state.activeBook?.readingLocation)
+            state.deleteBook(id: id)
+            state.restoreSampleBooks()
+            let restored = try XCTUnwrap(state.books.first { $0.id == id })
+            XCTAssertEqual(restored.readingLocation, anchor)
+        }
+    }
+
     func testPageTurnsDoNotRewriteCatalog() {
         withStorage { storage, defaults in
             let state = makeState(storage: storage)
