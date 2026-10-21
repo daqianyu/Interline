@@ -100,7 +100,7 @@ extension ReadingStorage {
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &coordinationError) { file in
             result = Result {
                 let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= maximumBackupBytes else { throw CocoaError(.fileReadTooLarge) }
+                guard size <= maximumBackupBytes else { throw LibraryBackupError.tooLarge }
                 let data = try Data(contentsOf: file)
                 _ = try decodeBackup(data)
                 return data
@@ -112,7 +112,7 @@ extension ReadingStorage {
     }
 
     public nonisolated static func decodeBackup(_ data: Data) throws -> LibraryBackup {
-        guard data.count <= maximumBackupBytes else { throw CocoaError(.fileReadTooLarge) }
+        guard data.count <= maximumBackupBytes else { throw LibraryBackupError.tooLarge }
         let backup = try JSONDecoder().decode(LibraryBackup.self, from: data)
         guard backup.version == 1 else { throw CocoaError(.coderReadCorrupt) }
         let all = backup.books + backup.removedBooks
@@ -156,7 +156,7 @@ extension ReadingStorage {
             let archive = LibraryBackup(version: 1, createdAt: Date(), books: try hydrate(active), removedBooks: try hydrate(removed),
                 preferences: preferences, bookmarks: bookmarks.filter { ids.contains($0.bookId) }, annotations: annotations.filter { ids.contains($0.bookID) }, drafts: drafts.filter { ids.contains($0.bookID) })
             let data = try JSONEncoder().encode(archive)
-            guard data.count <= Self.maximumBackupBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+            guard data.count <= Self.maximumBackupBytes else { throw LibraryBackupError.tooLarge }
             return data
         }.value
     }

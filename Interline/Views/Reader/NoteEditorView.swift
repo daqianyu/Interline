@@ -52,9 +52,7 @@ struct NoteEditorView: View {
     }
 
     private func save() {
-        let success: Bool
-        if let id = draft.annotationID { success = appState.updateAnnotation(id: id, note: note) }
-        else { success = appState.addAnnotation(bookID: draft.bookID, chapterID: draft.chapterID, range: draft.range, note: note) }
+        let success = appState.saveDraftNote(draft, text: note)
         guard success else {
             let retained = persistDraft()
             errorMessage = retained ? "笔记未能保存，输入已保留为草稿，请重试。" : "笔记与草稿均未保存，请保留此页并重试。"

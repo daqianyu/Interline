@@ -305,4 +305,30 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertTrue(f.storage.recoveryFiles().contains { $0.url == journal })
     }
 
+
+    func testDraftCanBeSavedAfterOriginalAnnotationWasDeleted() throws {
+        let f = Fixture(); defer { f.clean() }
+        let value = try book(); XCTAssertTrue(f.storage.saveBooks([value]))
+        let state = AppState(storage: f.storage)
+        XCTAssertTrue(state.addAnnotation(bookID: value.id, chapterID: value.chapters[0].id, range: NSRange(location: 0, length: 3), note: "原笔记"))
+        let annotation = try XCTUnwrap(state.annotations.first)
+        let draft = NoteDraft(bookID: value.id, chapterID: annotation.chapterID, range: annotation.range, quote: annotation.quote, annotationID: annotation.id, text: "保留的草稿")
+        XCTAssertTrue(state.saveDraft(draft))
+        state.removeAnnotation(id: annotation.id)
+        XCTAssertTrue(state.saveDraftNote(draft, text: draft.text))
+        XCTAssertEqual(state.annotations.count, 1)
+        XCTAssertEqual(state.annotations.first?.note, draft.text)
+    }
+
+    func testDraftCannotOverwriteAnUnrelatedAnnotation() throws {
+        let f = Fixture(); defer { f.clean() }
+        let value = try book(); XCTAssertTrue(f.storage.saveBooks([value]))
+        let state = AppState(storage: f.storage)
+        XCTAssertTrue(state.addAnnotation(bookID: value.id, chapterID: value.chapters[0].id, range: NSRange(location: 0, length: 3), note: "应保留"))
+        let annotation = try XCTUnwrap(state.annotations.first)
+        let mismatched = NoteDraft(bookID: value.id, chapterID: value.chapters[1].id, range: NSRange(location: 0, length: 3), quote: "第二章", annotationID: annotation.id, text: "不应覆盖")
+        XCTAssertFalse(state.saveDraftNote(mismatched, text: mismatched.text))
+        XCTAssertEqual(state.annotations.first?.note, "应保留")
+    }
+
 }

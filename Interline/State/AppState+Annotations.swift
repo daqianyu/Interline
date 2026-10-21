@@ -34,6 +34,20 @@ extension AppState {
         return true
     }
 
+    /// A retained draft may outlive its original annotation. Save it as a new
+    /// annotation in that case, but never redirect it to a different quotation.
+    @discardableResult public func saveDraftNote(_ draft: NoteDraft, text: String) -> Bool {
+        if let id = draft.annotationID, let existing = annotations.first(where: { $0.id == id }) {
+            guard existing.bookID == draft.bookID, existing.chapterID == draft.chapterID,
+                  existing.range == draft.range, existing.quote == draft.quote else {
+                showFailure("草稿与原笔记不匹配，输入已保留")
+                return false
+            }
+            return updateAnnotation(id: id, note: text)
+        }
+        return addAnnotation(bookID: draft.bookID, chapterID: draft.chapterID, range: draft.range, note: text)
+    }
+
     public func removeAnnotation(id: String) {
         let next = annotations.filter { $0.id != id }
         if storage.saveAnnotations(next) { annotations = next } else { checkSave(false) }

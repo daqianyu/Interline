@@ -53,3 +53,8 @@ public struct RecoveryFile: Identifiable, Sendable {
     public let size: Int
     public var id: String { url.lastPathComponent }
 }
+
+public enum LibraryBackupError: LocalizedError {
+    case tooLarge
+    public var errorDescription: String? { "完整备份超过 256 MB，请先分别导出书籍正文与笔记" }
+}
