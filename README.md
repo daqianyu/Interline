@@ -91,8 +91,11 @@ six-entry range cache is reused across page turns and recent layout changes.
 Core Text objects are created and used within their own work operation; only plain
 Sendable ranges cross to the main actor, which creates the current drawing frame.
 
-Chapter content is currently hydrated into memory on launch; future very large
-libraries may need lazy chapter loading. EPUB, online catalogs and cloud sync are
+Production startup loads metadata and chapter summaries only. The current book is
+loaded asynchronously on opening and released on close; inactive bodies are released
+on memory warnings. Older catalogs acquire missing summaries in a bounded background
+migration. Pagination ranges have a six-entry, 2 MiB estimated slice-storage budget;
+oversized layouts remain usable without being retained in the range cache. EPUB, online catalogs and cloud sync are
 not included. Import normalization does not preserve the original file's whitespace
 formatting. Selection happens in a dedicated native sheet, rather than conflicting
 with page-turn gestures on the canvas. Exact selection gestures and long-session
@@ -136,3 +139,38 @@ Missing book contents preserve saved reading anchors and prompt reimport rather
 than opening an empty reader. Shelf removal and undo update the visible library
 only after the catalog is saved. Text selection captures an immutable page and
 anchor so orientation or typography changes cannot move an in-progress note.
+
+
+## Library management and recovery
+
+Open **Bookshelf > Sort/filter menu > Data and storage** to export or merge a
+complete JSON backup (maximum 256 MiB). It includes active and removed books,
+reading records, settings, bookmarks, annotations and note drafts. Backups contain
+private reading content and are not encrypted. Merge restore keeps existing book
+metadata and annotations with the same IDs; an empty library restores preferences.
+Conflicting existing book bodies are rejected instead of overwritten.
+
+Multi-file removal and restore operations write a rollback journal first. A new
+launch restores the previous catalog, notes, drafts, maintenance state and reading
+records if the operation was interrupted. Immutable newly staged bodies may remain
+unreferenced after a failed operation; they do not replace existing bodies. A failed
+rollback blocks subsequent writes until recovery succeeds.
+
+Removed books remain accessible across launches. Permanent deletion first records
+a durable cleanup task; partial cleanup can be retried without reimporting the book.
+Original damaged files can be exported from the recovery section. Unreadable data
+is retained, but malformed files cannot be guaranteed to reconstruct automatically.
+
+Note editors retain draft input and stay open on save failure. Drafts can be resumed
+from Data and storage. Selection has a one-tap paragraph action alongside native
+selection handles. Search briefly highlights the matching range; explicit chapter,
+bookmark, progress and search jumps can return through a bounded position history.
+Shelf sorting/filtering works from metadata without loading all book bodies.
+Margins, paragraph spacing and tap zones are adjustable. Appearance-only changes
+reuse pagination rather than triggering a loading transition.
+
+Automated checks include backup/merge, interrupted-operation recovery, cleanup retry,
+note-save failure, lazy loading and close cancellation, a 100-book catalog fixture,
+selection rotation, note creation/relaunch and background/foreground restoration.
+Signed-device acceptance still covers actual Files/iCloud provider interaction,
+VoiceOver speech/gestures, sustained memory/energy use and long-session comfort.

@@ -2,15 +2,17 @@ import XCTest
 
 @MainActor
 final class ReaderFlowTests: XCTestCase {
-    private func launch() -> XCUIApplication {
+    private func launch(failNoteSave: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["INTERLINE_UI_TESTING"] = "1"
+        app.launchEnvironment["INTERLINE_UI_TEST_SUITE"] = UUID().uuidString
+        if failNoteSave { app.launchEnvironment["INTERLINE_UI_FAIL_NOTE_SAVE"] = "1" }
         app.launch()
         return app
     }
 
     private func screenshot(_ app: XCUIApplication, name: String) {
-        let image = XCTAttachment(screenshot: app.screenshot())
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         image.name = name
         image.lifetime = .keepAlways
         add(image)
@@ -94,6 +96,89 @@ final class ReaderFlowTests: XCTestCase {
         XCTAssertEqual(selection.value as? String, original)
         app.buttons["完成"].tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+    }
+
+
+    private func readyCanvas(_ app: XCUIApplication) -> XCUIElement {
+        let canvas = app.descendants(matching: .any)["readerCanvas"].firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 20))
+        let ready = expectation(for: NSPredicate(format: "label != %@ AND label.length > 20", "正在排版"), evaluatedWith: canvas)
+        wait(for: [ready], timeout: 20)
+        return canvas
+    }
+
+    private func beginNote(_ app: XCUIApplication) {
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.press(forDuration: 0.8)
+        XCTAssertTrue(app.buttons["selectParagraph"].waitForExistence(timeout: 5))
+        app.buttons["selectParagraph"].tap()
+        app.buttons["writeNote"].tap()
+        XCTAssertTrue(app.textViews["noteEditor"].waitForExistence(timeout: 5))
+    }
+
+    func testNoteCanBeWrittenAndPersistedThroughRelaunch() {
+        let app = launch()
+        beginNote(app)
+        let editor = app.textViews["noteEditor"]
+        editor.tap(); editor.typeText("A reading note")
+        app.buttons["saveNote"].tap()
+        _ = readyCanvas(app)
+        app.terminate(); app.launch()
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["readerTOC"].tap()
+        XCTAssertTrue(app.segmentedControls.buttons["笔记 (1)"].waitForExistence(timeout: 5))
+        app.segmentedControls.buttons["笔记 (1)"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A reading note")).firstMatch.waitForExistence(timeout: 5))
+        screenshot(app, name: "SavedNotes")
+    }
+
+    func testFailedNoteSaveKeepsEditorAndInputVisible() {
+        let app = launch(failNoteSave: true)
+        // Dismiss the persistent startup warning before using the reader.
+        if app.buttons["关闭提示"].exists { app.buttons["关闭提示"].tap() }
+        beginNote(app)
+        let editor = app.textViews["noteEditor"]
+        editor.tap(); editor.typeText("Keep this draft")
+        app.buttons["saveNote"].tap()
+        XCTAssertTrue(app.staticTexts["noteSaveError"].waitForExistence(timeout: 5))
+        XCTAssertEqual(editor.value as? String, "Keep this draft")
+        XCTAssertTrue(app.buttons["saveNote"].exists)
+        screenshot(app, name: "NoteSaveFailure")
+    }
+
+    func testDataAndStorageManagementIsReachable() {
+        let app = launch()
+        app.buttons["libraryMenu"].tap()
+        app.buttons["数据与存储"].tap()
+        XCTAssertTrue(app.buttons["exportLibraryBackup"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["restoreLibraryBackup"].exists)
+        screenshot(app, name: "LibraryData")
+    }
+
+    func testReadingSurvivesBackgroundAndForeground() {
+        let app = launch()
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let text = canvas.label
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertEqual(readyCanvas(app).label, text)
+    }
+
+
+    func testAccessibilityLabelsAndTraitsOnShelfAndReader() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["continueReading"].waitForExistence(timeout: 10))
+        try app.performAccessibilityAudit(for: [.sufficientElementDescription, .trait])
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["readerTOC"].waitForExistence(timeout: 5))
+        try app.performAccessibilityAudit(for: [.sufficientElementDescription, .trait])
     }
 
 }

@@ -32,6 +32,9 @@ public struct ReadingPreferences: Codable, Sendable, Hashable {
     public var followsSystemAppearance: Bool?
     public var usesDynamicType: Bool?
     public var isDarkMode: Bool
+    public var horizontalMargin: CGFloat?
+    public var paragraphSpacing: CGFloat?
+    public var tapZoneFraction: Double?
 
     public init(
         fontSize: CGFloat = 17.0,
@@ -45,6 +48,9 @@ public struct ReadingPreferences: Codable, Sendable, Hashable {
         self.fontFamily = fontFamily
         self.theme = theme
         self.isDarkMode = isDarkMode
+        self.horizontalMargin = 24
+        self.paragraphSpacing = 0.5
+        self.tapZoneFraction = 0.25
         self.followsSystemAppearance = true
         self.usesDynamicType = true
     }

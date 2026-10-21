@@ -44,32 +44,13 @@ struct AnnotationsListView: View {
                 }
             }
         }
-        .sheet(item: $editing) { annotation in AnnotationEditor(annotation: annotation) }
+        .sheet(item: $editing) { annotation in
+            let value = NoteDraft(bookID: annotation.bookID, chapterID: annotation.chapterID, range: annotation.range,
+                                  quote: annotation.quote, annotationID: annotation.id, text: annotation.note)
+            NoteEditorView(draft: appState.draft(for: value.id) ?? value)
+        }
         .fileExporter(isPresented: $exporting, document: document, contentType: .plainText, defaultFilename: "阅读笔记.txt") { result in
             if case .failure(let error) = result { appState.showToast(error.localizedDescription) }
-        }
-    }
-}
-
-private struct AnnotationEditor: View {
-    let annotation: ReadingAnnotation
-    @EnvironmentObject private var appState: AppState
-    @Environment(\.dismiss) private var dismiss
-    @State private var note = ""
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("摘录") { Text(annotation.quote).textSelection(.enabled) }
-                Section("笔记") { TextEditor(text: $note).frame(minHeight: 160).accessibilityLabel("笔记内容") }
-            }
-            .navigationTitle("编辑笔记")
-            .onAppear { note = annotation.note }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { appState.updateAnnotation(id: annotation.id, note: note); dismiss() }
-                }
-            }
         }
     }
 }

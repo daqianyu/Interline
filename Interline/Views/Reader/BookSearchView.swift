@@ -23,7 +23,7 @@ struct BookSearchView: View {
                             ForEach(results) { match in
                                 Button {
                                     dismiss()
-                                    appState.jumpToLocation(bookID: book.id, location: match.location)
+                                    appState.jumpToLocation(bookID: book.id, location: match.location, highlight: match.range)
                                 } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text(match.chapterTitle).font(.headline)

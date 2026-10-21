@@ -43,7 +43,7 @@ public enum ReaderPaginator {
     public static func attributedText(chapter: Chapter, preferences: ReadingPreferences) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = preferences.lineSpacing
-        paragraph.paragraphSpacing = preferences.fontSize * 0.5
+        paragraph.paragraphSpacing = preferences.fontSize * (preferences.paragraphSpacing ?? 0.5)
         paragraph.firstLineHeadIndent = preferences.fontSize * 2
         paragraph.lineBreakMode = .byWordWrapping
         let text = NSMutableAttributedString(string: chapter.readingText, attributes: [
