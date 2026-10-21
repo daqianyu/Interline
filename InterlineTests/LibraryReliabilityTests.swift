@@ -331,4 +331,22 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertEqual(state.annotations.first?.note, "应保留")
     }
 
+
+    func testRestoreClearsStaleUnavailableStatusAfterValidatingContents() async throws {
+        let source = Fixture(), target = Fixture(); defer { source.clean(); target.clean() }
+        let value = try book(); XCTAssertTrue(source.storage.saveBooks([value]))
+        let state = AppState(storage: source.storage)
+        var backup = try ReadingStorage.decodeBackup(try await state.exportLibraryBackup())
+        backup.books[0].contentsUnavailable = true
+        XCTAssertTrue(target.storage.saveBooks([]))
+        let restored = AppState(storage: target.storage, loadsContentsOnDemand: true)
+        let encoded = try JSONEncoder().encode(backup)
+        let success = await restored.restoreLibraryBackup(encoded)
+        XCTAssertTrue(success)
+        XCTAssertEqual(restored.books.first?.contentsUnavailable, false)
+        restored.openBook(restored.books[0]); await restored.waitForBookLoad()
+        XCTAssertTrue(restored.isReaderPresented)
+        XCTAssertEqual(restored.activeBook?.chapters, value.chapters)
+    }
+
 }

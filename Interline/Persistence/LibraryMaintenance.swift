@@ -149,6 +149,7 @@ extension ReadingStorage {
                     var book = saved
                     if book.chapters.isEmpty { book.chapters = try store.readContents(bookID: book.id) }
                     guard !book.chapters.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                    book.contentsUnavailable = false
                     return book
                 }
             }

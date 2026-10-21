@@ -64,7 +64,10 @@ extension AppState {
         isMaintenanceBusy = true
         defer { isMaintenanceBusy = false }
         do {
-            let backup = try await Task.detached(priority: .userInitiated) { try ReadingStorage.decodeBackup(data) }.value
+            var backup = try await Task.detached(priority: .userInitiated) { try ReadingStorage.decodeBackup(data) }.value
+            func available(_ value: Book) -> Book { var book = value; book.contentsUnavailable = false; return book }
+            backup.books = backup.books.map(available)
+            backup.removedBooks = backup.removedBooks.map(available)
             let existing = books + maintenance.removedBooks
             let existingIDs = Set(existing.map(\.id))
             let incoming = (backup.books + backup.removedBooks).filter { !existingIDs.contains($0.id) }
@@ -74,14 +77,15 @@ extension AppState {
             var nextMaintenance = maintenance
             nextMaintenance.removedBooks += backup.removedBooks.filter { !existingIDs.contains($0.id) }.map(\.metadata)
             let repairedIDs = Set(absent.map(\.id))
+            let restoredIDs = Set((backup.books + backup.removedBooks).map(\.id))
             let nextBooks = books.map { value in
                 var book = value
-                if repairedIDs.contains(book.id) { book.contentsUnavailable = false }
+                if restoredIDs.contains(book.id) { book.contentsUnavailable = false }
                 return book
             } + backup.books.filter { !existingIDs.contains($0.id) }
             nextMaintenance.removedBooks = nextMaintenance.removedBooks.map { value in
                 var book = value
-                if repairedIDs.contains(book.id) { book.contentsUnavailable = false }
+                if restoredIDs.contains(book.id) { book.contentsUnavailable = false }
                 return book
             }
             let pendingIDs = Set(maintenance.pendingDeletions.map(\.id))
