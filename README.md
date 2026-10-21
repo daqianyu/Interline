@@ -2,6 +2,13 @@
 
 A local, native SwiftUI reader focused on Chinese long-form text.
 
+## Development plan
+
+All ongoing development follows [the plan index](plans/README.md) and the
+repository's [agent instructions](AGENTS.md). The active improvement program has
+requirements, development design, test/acceptance design, an evidence-based final
+acceptance record, and an execution log. Unfinished work remains explicitly tracked.
+
 ## Build and test
 
 - Xcode 27 with an iOS 27 simulator

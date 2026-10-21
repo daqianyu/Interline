@@ -116,8 +116,11 @@ extension AppState {
             showToast("备份已合并，已有书籍的记录保持不变")
             return true
         } catch {
-            _ = storage.recoverInterruptedRestore()
-            showFailure("恢复未完成，原有资料已保留：\(error.localizedDescription)")
+            if storage.recoverInterruptedRestore() {
+                showFailure("恢复未完成，原有资料已保留：\(error.localizedDescription)")
+            } else {
+                showFailure("恢复未完成，且回滚尚未成功。恢复日志仍保留，相关写入已暂停；请在数据与存储中重试中断的数据恢复。")
+            }
             return false
         }
     }

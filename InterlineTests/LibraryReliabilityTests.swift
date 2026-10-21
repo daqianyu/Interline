@@ -88,6 +88,8 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertFalse(result)
         XCTAssertEqual(try Data(contentsOf: f.storage.catalogURL), original)
         XCTAssertEqual(state.books.map(\.id), [value.id])
+        XCTAssertEqual(state.notice?.isError, true)
+        XCTAssertFalse(state.notice?.message.contains("回滚尚未成功") == true)
     }
 
     func testBackupRejectsDuplicateIDsAndMismatchedAnnotationQuotes() async throws {

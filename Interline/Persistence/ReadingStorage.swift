@@ -225,13 +225,31 @@ public final class ReadingStorage {
         }
     }
 
-    func save<Value: Encodable>(_ value: Value, key: String) -> Bool {
+    /// Retain the original key and property-list value before replacing unreadable
+    /// defaults. Data values keep their exact bytes; a failed archive blocks writes.
+    private func preserveUnreadableDefaults<Value: Decodable>(_ type: Value.Type, key: String) throws {
+        guard let original = defaults.object(forKey: key) else { return }
+        if let data = original as? Data {
+            do { _ = try decoder.decode(type, from: data); return }
+            catch { /* Archive the unreadable value before replacing it. */ }
+        }
+        let snapshot = try PropertyListSerialization.data(
+            fromPropertyList: ["key": key, "value": original], format: .binary, options: 0)
+        let recovery = directory.appendingPathComponent("Recovery", isDirectory: true)
+        try FileManager.default.createDirectory(at: recovery, withIntermediateDirectories: true)
+        let url = recovery.appendingPathComponent(UUID().uuidString + "-defaults.plist")
+        try snapshot.write(to: url, options: .atomic)
+    }
+
+    func save<Value: Codable>(_ value: Value, key: String) -> Bool {
         guard permitWrite() else { return false }
         do {
-            defaults.set(try encoder.encode(value), forKey: key)
+            let data = try encoder.encode(value)
+            try preserveUnreadableDefaults(Value.self, key: key)
+            defaults.set(data, forKey: key)
             return true
         } catch {
-            lastError = "阅读数据保存失败，请重试"
+            lastError = "阅读数据保存失败，原始数据未被覆盖，请重试"
             return false
         }
     }

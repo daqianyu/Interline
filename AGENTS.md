@@ -1,4 +1,34 @@
-\# AGENTS.md — NovelReader
+# AGENTS.md — Interline
+
+## Required plan-driven workflow
+
+This section applies to every subsequent development, repair, optimization, and
+acceptance task in this repository. It supplements the product principles below.
+
+1. Read `plans/README.md`, then the active plan's `00-roadmap.md`, relevant
+   requirements, development design, test design, and acceptance record before editing.
+2. Follow the numbered execution order. Select the earliest actionable unfinished
+   item and cite its requirement ID in the work summary and PR. If a dependency is
+   blocked, record the evidence and continue only with a later independent item.
+3. Before implementation, make the affected requirement, migration/rollback behavior,
+   and acceptance cases concrete. If scope changes, update the plan first. A new
+   user instruction takes precedence; reconcile it into the active plan.
+4. Implement one coherent step at a time. Preserve user changes, text anchors,
+   backward compatibility, and original data. Do not silently replace the planned
+   outcome with a partial implementation or add unrelated features.
+5. Run the checks required by `03-test-acceptance-design.md`. Distinguish implemented,
+   compiled, automatically tested, visually inspected, and physically tested states.
+   A simulator pass or unsigned IPA is not physical-device acceptance.
+6. Update `00-roadmap.md`, `04-final-acceptance.md`, and `05-execution-log.md` with
+   actual changed files, test/run evidence, limitations, and the next actionable ID.
+   Never mark an item verified or the release accepted without matching evidence.
+7. Keep changes in reviewable commits/PRs. Follow the user's existing GitHub
+   authorization; this document does not introduce an extra confirmation gate.
+8. End each delivery with completed IDs, validation, remaining blockers, and the
+   next step. Plans must live in the repository and remain readable without chat history.
+
+The active plan is `plans/2026-10-improvements/`. Do not create a competing
+lowercase `agent.md`; this `AGENTS.md` is the canonical agent instruction file.
 
 
 
@@ -515,4 +545,5 @@ For the first MVP, prioritize a polished bookshelf, a reliable immersive reader,
 
 
 When requirements conflict, preserve reading comfort, correctness, and native iOS behavior first.
+
 
