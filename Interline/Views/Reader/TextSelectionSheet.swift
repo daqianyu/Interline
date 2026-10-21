@@ -109,6 +109,8 @@ private struct SelectableTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var selection: Binding<NSRange>
         init(selection: Binding<NSRange>) { self.selection = selection }
-        func textViewDidChangeSelection(_ textView: UITextView) { selection.wrappedValue = textView.selectedRange }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            if selection.wrappedValue != textView.selectedRange { selection.wrappedValue = textView.selectedRange }
+        }
     }
 }

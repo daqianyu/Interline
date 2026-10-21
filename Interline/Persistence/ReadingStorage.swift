@@ -20,6 +20,14 @@ public final class ReadingStorage {
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
     public internal(set) var lastError: String?
+    var transactionActive = false
+    func permitWrite() -> Bool {
+        guard transactionActive || !FileManager.default.fileExists(atPath: directory.appendingPathComponent("restore-journal-v1.json").path) else {
+            lastError = "上次数据操作尚未恢复，请先在数据与存储中重试恢复"
+            return false
+        }
+        return true
+    }
 
     public init(defaults: UserDefaults = .standard, directory: URL? = nil) {
         self.defaults = defaults
@@ -98,6 +106,7 @@ public final class ReadingStorage {
     }
 
     @discardableResult public func saveBooks(_ books: [Book]) -> Bool {
+        guard permitWrite() else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try preserveUnreadableFile(at: catalogURL) { data in
@@ -145,6 +154,7 @@ public final class ReadingStorage {
     }
 
     @discardableResult public func saveAnnotations(_ annotations: [ReadingAnnotation]) -> Bool {
+        guard permitWrite() else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent("annotations-v1.json")
@@ -160,6 +170,7 @@ public final class ReadingStorage {
     }
 
     @discardableResult public func purgeContents(bookID: String) -> Bool {
+        guard permitWrite() else { return false }
         do {
             let url = contentsURL(bookID: bookID)
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
@@ -175,6 +186,9 @@ public final class ReadingStorage {
         var value = load(ReadingPreferences.self, key: preferencesKey) ?? ReadingPreferences()
         value.fontSize = min(ReadingPreferences.maxFontSize, max(ReadingPreferences.minFontSize, value.fontSize))
         value.lineSpacing = min(20, max(0, value.lineSpacing))
+        value.horizontalMargin = min(48, max(12, value.horizontalMargin ?? 24))
+        value.paragraphSpacing = min(1.5, max(0, value.paragraphSpacing ?? 0.5))
+        value.tapZoneFraction = min(0.4, max(0.15, value.tapZoneFraction ?? 0.25))
         return value
     }
 
@@ -212,6 +226,7 @@ public final class ReadingStorage {
     }
 
     func save<Value: Encodable>(_ value: Value, key: String) -> Bool {
+        guard permitWrite() else { return false }
         do {
             defaults.set(try encoder.encode(value), forKey: key)
             return true

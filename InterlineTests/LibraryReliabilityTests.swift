@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class LibraryReliabilityTests: XCTestCase {
-    private struct Fixture {
+    @MainActor private struct Fixture {
         let storage: ReadingStorage
         let defaults: UserDefaults
         let name: String
@@ -240,4 +240,21 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertTrue(state.books.allSatisfy { $0.chapters.isEmpty && !$0.summaries.isEmpty })
         XCTAssertGreaterThan(state.books.reduce(0) { $0 + $1.totalCharacters }, 100_000)
     }
+
+    func testPageCacheRespectsBudgetAndMemoryPressure() {
+        let page = PageSlice(chapterID: "a", pageIndex: 0, range: NSRange(location: 0, length: 100))
+        let stride = MemoryLayout<PageSlice>.stride
+        var cache = PageRangeCache<String>(budget: stride * 4, capacity: 3)
+        cache.insert([page, page], for: "first")
+        cache.insert([page, page], for: "second")
+        XCTAssertNotNil(cache.value(for: "first"))
+        cache.insert([page, page], for: "third")
+        XCTAssertNil(cache.value(for: "second"))
+        XCTAssertLessThanOrEqual(cache.estimatedBytes, stride * 4)
+        cache.insert(Array(repeating: page, count: 10), for: "oversized")
+        XCTAssertNil(cache.value(for: "oversized"))
+        cache.removeAll()
+        XCTAssertEqual(cache.count, 0)
+    }
+
 }

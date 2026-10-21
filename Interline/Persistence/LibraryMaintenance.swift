@@ -13,6 +13,7 @@ extension ReadingStorage {
     }
 
     @discardableResult func writeFile<T: Codable>(_ value: T, name: String) -> Bool {
+        guard permitWrite() else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent(name)
@@ -51,6 +52,7 @@ extension ReadingStorage {
     /// An interrupted operation rolls back on next launch; immutable staged bodies may
     /// be left unreferenced, but no existing body is replaced by a backup merge.
     func beginTransaction() throws {
+        guard !transactionActive else { throw CocoaError(.fileWriteUnknown) }
         guard recoverInterruptedRestore() else { throw CocoaError(.fileWriteUnknown) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let files = try ["catalog-v2.json", "annotations-v1.json", "maintenance-v1.json", "drafts-v1.json"].map { name in
@@ -60,8 +62,9 @@ extension ReadingStorage {
         let values = defaults.dictionaryRepresentation().filter { $0.key.hasPrefix("interline_") }
         let data = try PropertyListSerialization.data(fromPropertyList: values, format: .binary, options: 0)
         try encoder.encode(Checkpoint(files: files, defaults: data)).write(to: journalURL, options: .atomic)
+        transactionActive = true
     }
-    func commitTransaction() throws { try FileManager.default.removeItem(at: journalURL) }
+    func commitTransaction() throws { try FileManager.default.removeItem(at: journalURL); transactionActive = false }
 
     @discardableResult func recoverInterruptedRestore() -> Bool {
         guard FileManager.default.fileExists(atPath: journalURL.path) else { return true }
@@ -79,8 +82,9 @@ extension ReadingStorage {
             for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("interline_") { defaults.removeObject(forKey: key) }
             for (key, value) in values { defaults.set(value, forKey: key) }
             try FileManager.default.removeItem(at: journalURL)
+            transactionActive = false
             return true
-        } catch { lastError = "上次数据操作尚未恢复，请在数据与存储中重试"; return false }
+        } catch { transactionActive = false; lastError = "上次数据操作尚未恢复，请在数据与存储中重试"; return false }
     }
 
     public nonisolated static let maximumBackupBytes = 256 * 1_024 * 1_024
@@ -93,6 +97,7 @@ extension ReadingStorage {
         var chapters: [String: [String: Chapter]] = [:]
         for book in all {
             guard !book.id.isEmpty, !book.chapters.isEmpty,
+                  book.chapters.reduce(0, { $0 + $1.readingLength }) <= 24 * 1_024 * 1_024,
                   Set(book.chapters.map(\.id)).count == book.chapters.count else { throw CocoaError(.coderReadCorrupt) }
             chapters[book.id] = Dictionary(uniqueKeysWithValues: book.chapters.map { ($0.id, $0) })
         }
