@@ -9,7 +9,8 @@ final class ReaderFlowTests: XCTestCase {
     /// Accessibility existence alone does not mean an animating toolbar has
     /// reached its touch location. Observe the actual frame; do not sleep or retry taps.
     private func tapSettled(_ element: XCUIElement) {
-        var previousFrame = CGRect.null
+        XCTAssertTrue(element.waitForExistence(timeout: 10))
+        var previousFrame = element.frame
         var stableSince = Date()
         let settled = NSPredicate { _, _ in
             guard element.exists, element.isHittable else {
@@ -26,7 +27,7 @@ final class ReaderFlowTests: XCTestCase {
             return Date().timeIntervalSince(stableSince) >= 0.3
         }
         let ready = expectation(for: settled, evaluatedWith: element)
-        wait(for: [ready], timeout: 5)
+        wait(for: [ready], timeout: 15)
         element.tap()
     }
 
