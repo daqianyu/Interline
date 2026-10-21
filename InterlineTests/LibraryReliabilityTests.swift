@@ -290,6 +290,60 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertFalse(state.isLoadingBook)
     }
 
+    func testFailedBookmarkToggleKeepsVisibleAndPersistedState() throws {
+        let f = Fixture(); defer { f.clean() }
+        let value = try book(); XCTAssertTrue(f.storage.saveBooks([value]))
+        let state = AppState(storage: f.storage, usesBackgroundLayout: false)
+        state.openBook(value); state.prepareReader(size: CGSize(width: 280, height: 400))
+        XCTAssertNotNil(state.currentPage)
+        let journal = f.storage.directory.appendingPathComponent("restore-journal-v1.json")
+        try Data("damaged journal".utf8).write(to: journal)
+        state.toggleBookmark()
+        XCTAssertTrue(state.bookmarks.isEmpty)
+        XCTAssertTrue(f.storage.loadBookmarks().isEmpty)
+        XCTAssertEqual(state.notice?.isError, true)
+
+        try FileManager.default.removeItem(at: journal)
+        state.toggleBookmark()
+        let savedID = try XCTUnwrap(state.bookmarks.first?.id)
+        XCTAssertEqual(f.storage.loadBookmarks().map(\.id), [savedID])
+        try Data("damaged journal".utf8).write(to: journal)
+        state.toggleBookmark()
+        XCTAssertEqual(state.bookmarks.map(\.id), [savedID])
+        XCTAssertEqual(f.storage.loadBookmarks().map(\.id), [savedID])
+        XCTAssertEqual(state.notice?.isError, true)
+        try FileManager.default.removeItem(at: journal)
+        state.toggleBookmark()
+        XCTAssertTrue(state.bookmarks.isEmpty)
+        XCTAssertTrue(f.storage.loadBookmarks().isEmpty)
+    }
+
+    func testBlockedImportDoesNotStageNewOrReplaceExistingContents() async throws {
+        let f = Fixture(); defer { f.clean() }
+        let original = try book("original"), other = try book("other")
+        XCTAssertTrue(f.storage.saveBooks([original]))
+        let state = AppState(storage: f.storage, usesBackgroundLayout: false)
+        let originalBytes = try Data(contentsOf: f.storage.contentsURL(bookID: original.id))
+        let catalogBytes = try Data(contentsOf: f.storage.catalogURL)
+        let journal = f.storage.directory.appendingPathComponent("restore-journal-v1.json")
+        try Data("damaged journal".utf8).write(to: journal)
+        let imported = await state.importBook(other)
+        XCTAssertFalse(imported)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.storage.contentsURL(bookID: other.id).path))
+
+        // A removed book normally permits body replacement during reimport.
+        state.maintenance.removedBooks = [original.metadata]
+        state.books = []
+        var replacement = original
+        replacement.chapters = other.chapters
+        let repaired = await state.importBook(replacement)
+        XCTAssertFalse(repaired)
+        XCTAssertEqual(try Data(contentsOf: f.storage.contentsURL(bookID: original.id)), originalBytes)
+        XCTAssertEqual(try Data(contentsOf: f.storage.catalogURL), catalogBytes)
+        XCTAssertEqual(state.notice?.isError, true)
+        XCTAssertFalse(state.isImporting)
+    }
+
     func testUnreadableRecoveryJournalBlocksWritesAndCanBeExported() throws {
         let f = Fixture(); defer { f.clean() }
         let original = try book("original"), other = try book("other")

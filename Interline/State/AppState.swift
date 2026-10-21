@@ -430,18 +430,19 @@ public final class AppState: ObservableObject {
 
     public func toggleBookmark() {
         guard let book = activeBook, let chapter = book.currentChapter, let page = currentPage else { return }
-        if bookmarks.contains(where: matchesCurrentPage) {
-            bookmarks.removeAll(where: matchesCurrentPage)
-            if storage.saveBookmarks(bookmarks) { showToast("已移除书签") }
-            else { checkSave(false) }
+        let removing = bookmarks.contains(where: matchesCurrentPage)
+        var next = bookmarks
+        if removing {
+            next.removeAll(where: matchesCurrentPage)
         } else {
-            bookmarks.append(Bookmark(bookId: book.id, chapterIndex: book.currentChapterIndex,
+            next.append(Bookmark(bookId: book.id, chapterIndex: book.currentChapterIndex,
                 chapterTitle: chapter.title, pageIndex: book.currentPageIndex,
                 snippet: String(currentPageText.prefix(60)),
                 location: ReadingLocation(chapterID: chapter.id, utf16Offset: page.range.location)))
-            if storage.saveBookmarks(bookmarks) { showToast("已添加书签") }
-            else { checkSave(false) }
         }
+        guard storage.saveBookmarks(next) else { checkSave(false); return }
+        bookmarks = next
+        showToast(removing ? "已移除书签" : "已添加书签")
     }
 
     public func deleteBook(id: String) {

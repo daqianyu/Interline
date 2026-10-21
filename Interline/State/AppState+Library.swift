@@ -3,6 +3,7 @@ import Foundation
 extension AppState {
     public func importBook(_ imported: Book) async -> Bool {
         guard !isMaintenanceBusy, !isImporting else { return false }
+        guard storage.permitWrite() else { checkSave(false); return false }
         guard !maintenance.pendingDeletions.contains(where: { $0.id == imported.id }) else { showFailure("请先在数据与存储中完成此书的数据清理"); return false }
         let wasRemoved = maintenance.removedBooks.contains(where: { $0.id == imported.id })
         guard !imported.chapters.isEmpty else { showToast("没有可导入的正文"); return false }
