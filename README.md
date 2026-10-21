@@ -142,6 +142,12 @@ exact bytes under `Application Support/Interline/Recovery` with a unique name.
 If that backup cannot be saved, the original file is left untouched and the
 operation reports failure. Recovery copies are retained for manual recovery;
 the app does not claim to reconstruct a malformed file automatically.
+Unreadable UserDefaults bookmarks, preferences, and reading records receive the
+same protection: a binary property-list archive retains the original key/value
+(including exact Data bytes) before replacement. Failure to archive refuses the
+write. Valid values keep their original formats without generating recovery copies.
+These raw recovery files can be exported from Data and storage; they are not added
+to the existing complete-library JSON backup automatically.
 Missing book contents preserve saved reading anchors and prompt reimport rather
 than opening an empty reader. Shelf removal and undo update the visible library
 only after the catalog is saved. Text selection captures an immutable page and
@@ -162,6 +168,9 @@ launch restores the previous catalog, notes, drafts, maintenance state and readi
 records if the operation was interrupted. Immutable newly staged bodies may remain
 unreferenced after a failed operation; they do not replace existing bodies. A failed
 rollback blocks subsequent writes until recovery succeeds.
+If rollback itself fails, the app explicitly reports that recovery is still
+pending, keeps the journal, and directs the user to retry instead of claiming the
+previous data has already been restored.
 
 Removed books remain accessible across launches. Permanent deletion first records
 a durable cleanup task; partial cleanup can be retried without reimporting the book.
