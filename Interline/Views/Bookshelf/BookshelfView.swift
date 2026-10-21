@@ -38,7 +38,7 @@ public struct BookshelfView: View {
                             Button("添加示例书") { appState.restoreSampleBooks() }
                         }
                     } else if appState.filteredBooks.isEmpty {
-                        ContentUnavailableView.search(text: appState.searchText)
+                        ContentUnavailableView("没有符合条件的书籍", systemImage: "line.3.horizontal.decrease", description: Text("可调整阅读状态筛选或搜索关键词。"))
                     } else {
                         savedBooksSection
                     }
@@ -53,6 +53,18 @@ public struct BookshelfView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("排序", selection: $appState.shelfSort) {
+                            ForEach(ShelfSort.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        Picker("阅读状态", selection: $appState.shelfFilter) {
+                            ForEach(ShelfFilter.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        Divider()
+                        Button("数据与存储", systemImage: "externaldrive") { appState.isStoragePresented = true }
+                    } label: { Image(systemName: "line.3.horizontal.decrease").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityLabel("书架排序、筛选与数据")
+                    .accessibilityIdentifier("libraryMenu")
                     BookImportButton()
                     Button(action: {
                         withAnimation {
@@ -77,6 +89,7 @@ public struct BookshelfView: View {
                 }
             }
             .sheet(item: $selectedBook) { book in BookDetailView(bookID: book.id) }
+            .sheet(isPresented: $appState.isStoragePresented) { LibraryDataView() }
         }
     }
 
@@ -128,8 +141,8 @@ public struct BookshelfView: View {
 
                         Spacer()
 
-                        if let currentChapter = book.currentChapter {
-                            Text(currentChapter.title)
+                        if let currentChapterTitle = book.currentChapterTitle {
+                            Text(currentChapterTitle)
                                 .font(.system(size: 12))
                                 .foregroundColor(ThemeTokens.Colors.tertiaryLabel)
                                 .lineLimit(1)
@@ -171,7 +184,7 @@ public struct BookshelfView: View {
     private var savedBooksSection: some View {
         VStack(alignment: .leading, spacing: ThemeTokens.Spacing.sm) {
             HStack {
-                Text("全部书目 (\(appState.filteredBooks.count))")
+                Text("\(appState.shelfFilter.rawValue)书目 (\(appState.filteredBooks.count))")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(ThemeTokens.Colors.secondaryLabel)
 

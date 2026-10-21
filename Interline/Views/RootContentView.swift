@@ -6,6 +6,7 @@ import SwiftUI
 public struct RootContentView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     public init() {}
 
@@ -25,6 +26,7 @@ public struct RootContentView: View {
             ToastOverlaysView()
                 .zIndex(100)
         }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { appState.persistSession() } }
         .preferredColorScheme((appState.preferences.followsSystemAppearance ?? true) ? nil : (appState.preferences.isDarkMode ? .dark : .light))
         .transaction { transaction in
             if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
@@ -59,10 +61,12 @@ public struct ReaderContainerView: View {
                     ZStack {
                         Color.clear
                         if let layout = appState.pagination {
-                            ReaderPageView(pagination: layout, pageIndex: book.currentPageIndex, annotations: appState.currentBookAnnotations)
+                            ReaderPageView(pagination: layout, pageIndex: book.currentPageIndex, annotations: appState.currentBookAnnotations, searchHighlight: appState.searchHighlight)
                                 .accessibilityHidden(true)
                         } else if let error = appState.paginationError {
                             ContentUnavailableView(error, systemImage: "text.badge.xmark")
+                        } else if appState.isLoadingBook {
+                            ProgressView("正在加载正文")
                         } else if book.chapters.isEmpty {
                             ContentUnavailableView("本书暂无章节", systemImage: "book.closed")
                         } else {
@@ -94,7 +98,7 @@ public struct ReaderContainerView: View {
                     .onChange(of: readingScale) { _, scale in appState.prepareReader(size: geometry.size, scale: scale) }
                 }
                 HStack {
-                    Text(book.currentChapter?.title ?? "")
+                    Text(book.currentChapterTitle ?? "")
                         .lineLimit(1)
                     Spacer()
                     Text(appState.pagination == nil ? "正在排版" : "\(book.currentPageIndex + 1) / \(appState.pagination?.pages.count ?? 1)")
@@ -104,7 +108,7 @@ public struct ReaderContainerView: View {
                 .foregroundStyle(theme.secondaryTextColor)
                 .accessibilityLabel("本章第 \(book.currentPageIndex + 1) 页，共 \(appState.pagination?.pages.count ?? 1) 页")
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, appState.preferences.horizontalMargin ?? 24)
             .padding(.top, 12)
             .padding(.bottom, 12)
 
@@ -179,6 +183,11 @@ public struct ReaderContainerView: View {
                 VStack {
                     Spacer()
 
+                    if !appState.navigationHistory.isEmpty {
+                        Button("返回刚才位置", systemImage: "arrow.uturn.backward") { appState.returnToPreviousLocation() }
+                            .padding(10).interlineGlass(cornerRadius: 16)
+                            .accessibilityIdentifier("returnToReadingLocation")
+                    }
                     ReaderProgressView()
                         .padding(.horizontal, ThemeTokens.Spacing.safeInsetSides)
 
@@ -266,9 +275,10 @@ public struct ReaderContainerView: View {
             appState.hideControls()
             return
         }
-        if point.x < width * 0.25 {
+        let zone = min(0.4, max(0.15, appState.preferences.tapZoneFraction ?? 0.25))
+        if point.x < width * zone {
             appState.prevPage()
-        } else if point.x > width * 0.75 {
+        } else if point.x > width * (1 - zone) {
             appState.nextPage()
         } else {
             appState.toggleControls()
@@ -352,6 +362,20 @@ public struct ReaderSettingsSheetView: View {
                         Text("\(Int(appState.preferences.lineSpacing))")
                             .monospacedDigit()
                             .frame(minWidth: 24)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("页边距").font(.callout)
+                        Slider(value: Binding(get: { appState.preferences.horizontalMargin ?? 24 }, set: { value in appState.updatePreferences { $0.horizontalMargin = value } }), in: 12...48, step: 4)
+                            .accessibilityLabel("页边距")
+                        Text("段间距").font(.callout)
+                        Slider(value: Binding(get: { appState.preferences.paragraphSpacing ?? 0.5 }, set: { value in appState.updatePreferences { $0.paragraphSpacing = value } }), in: 0...1.5, step: 0.25)
+                            .accessibilityLabel("段间距")
+                        Picker("翻页热区", selection: Binding(get: { appState.preferences.tapZoneFraction ?? 0.25 }, set: { value in appState.updatePreferences { $0.tapZoneFraction = value } })) {
+                            Text("较窄").tag(0.2)
+                            Text("标准").tag(0.25)
+                            Text("较宽").tag(0.35)
+                        }
                     }
 
                     // Font Family (黑体 vs 宋体)

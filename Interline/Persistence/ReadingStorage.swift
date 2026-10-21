@@ -16,10 +16,10 @@ public final class ReadingStorage {
         let version: Int
         let books: [Book]
     }
-    private let defaults: UserDefaults
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
-    public private(set) var lastError: String?
+    let defaults: UserDefaults
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    public internal(set) var lastError: String?
 
     public init(defaults: UserDefaults = .standard, directory: URL? = nil) {
         self.defaults = defaults
@@ -45,7 +45,8 @@ public final class ReadingStorage {
         }
     }
 
-    public func loadBooks() -> [Book] {
+    public func loadBooks(includeContents: Bool = true) -> [Book] {
+        guard recoverInterruptedRestore() else { return [] }
         let saved: [Book]
         if FileManager.default.fileExists(atPath: catalogURL.path) {
             do {
@@ -53,8 +54,12 @@ public final class ReadingStorage {
                 guard catalog.version == 2 else { throw CocoaError(.coderReadCorrupt) }
                 saved = catalog.books.map { metadata in
                     var book = metadata
-                    do { book.chapters = try decoder.decode([Chapter].self, from: Data(contentsOf: contentsURL(bookID: book.id))) }
-                    catch { lastError = "《\(book.title)》正文无法读取，目录记录已保留" }
+                    if includeContents {
+                        do { book.chapters = try readContents(bookID: book.id); book.contentsUnavailable = false }
+                        catch { book.contentsUnavailable = true; lastError = "《\(book.title)》正文无法读取，目录记录已保留" }
+                    } else if !FileManager.default.fileExists(atPath: contentsURL(bookID: book.id).path) {
+                        book.contentsUnavailable = true
+                    }
                     return book
                 }
             } catch {
@@ -88,7 +93,7 @@ public final class ReadingStorage {
                 book.readingLocation = nil
                 book.visibleEndOffset = nil
             }
-            return book
+            return includeContents ? book : book.metadata
         }
     }
 
@@ -102,6 +107,7 @@ public final class ReadingStorage {
             for book in books { try stageContents(of: book) }
             let metadata = books.map { book in
                 var value = book
+                value.updateChapterSummaries()
                 value.chapters = []
                 return value
             }
@@ -115,7 +121,7 @@ public final class ReadingStorage {
 
     /// A failed read must never turn the only copy into an empty replacement.
     /// Copy exact bytes first; if backup fails, propagate and refuse the write.
-    private func preserveUnreadableFile(at url: URL, validate: (Data) throws -> Void) throws {
+    func preserveUnreadableFile(at url: URL, validate: (Data) throws -> Void) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         let data = try Data(contentsOf: url)
         do { try validate(data) }
@@ -192,7 +198,7 @@ public final class ReadingStorage {
         save(ReadingRecord(book: book), key: recordPrefix + book.id)
     }
 
-    private func load<Value: Decodable>(_ type: Value.Type, key: String) -> Value? {
+    func load<Value: Decodable>(_ type: Value.Type, key: String) -> Value? {
         guard defaults.object(forKey: key) != nil else { return nil }
         guard let data = defaults.data(forKey: key) else {
             lastError = "本地阅读数据格式异常，原始数据已保留"
@@ -205,7 +211,7 @@ public final class ReadingStorage {
         }
     }
 
-    private func save<Value: Encodable>(_ value: Value, key: String) -> Bool {
+    func save<Value: Encodable>(_ value: Value, key: String) -> Bool {
         do {
             defaults.set(try encoder.encode(value), forKey: key)
             return true

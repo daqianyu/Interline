@@ -43,6 +43,17 @@ public struct Chapter: Identifiable, Codable, Sendable, Hashable {
     }
 }
 
+public struct ChapterSummary: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let title: String
+    public let readingLength: Int
+    public let characterCount: Int
+    public init(_ chapter: Chapter) {
+        id = chapter.id; title = chapter.title
+        readingLength = chapter.readingLength; characterCount = chapter.characterCount
+    }
+}
+
 // MARK: - Book Model
 public struct Book: Identifiable, Codable, Sendable, Hashable {
     public let id: String
@@ -58,6 +69,9 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
     public var contentFingerprint: String?
     public var sourceEncoding: String?
     public var lastReadDate: Date
+    public var importedAt: Date?
+    public var chapterSummaries: [ChapterSummary]?
+    public var contentsUnavailable: Bool?
 
     public init(
         id: String,
@@ -79,6 +93,9 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
         self.currentPageIndex = currentPageIndex
         self.chapters = chapters
         self.lastReadDate = lastReadDate
+        self.importedAt = Date()
+        self.chapterSummaries = chapters.map(ChapterSummary.init)
+        self.contentsUnavailable = false
         self.contentFingerprint = nil
         self.sourceEncoding = nil
         self.readingLocation = nil
@@ -86,7 +103,7 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
     }
 
     public var totalCharacters: Int {
-        chapters.reduce(0) { $0 + $1.characterCount }
+        summaries.reduce(0) { $0 + $1.characterCount }
     }
 
     public var currentChapter: Chapter? {
@@ -94,12 +111,29 @@ public struct Book: Identifiable, Codable, Sendable, Hashable {
         return chapters[currentChapterIndex]
     }
 
+    public var summaries: [ChapterSummary] {
+        chapters.isEmpty ? (chapterSummaries ?? []) : chapters.map(ChapterSummary.init)
+    }
+    public var currentChapterTitle: String? {
+        let values = summaries
+        return values.indices.contains(currentChapterIndex) ? values[currentChapterIndex].title : nil
+    }
+    public mutating func updateChapterSummaries() {
+        if !chapters.isEmpty { chapterSummaries = chapters.map(ChapterSummary.init) }
+    }
+    public var metadata: Book {
+        var value = self
+        value.updateChapterSummaries()
+        value.chapters = []
+        return value
+    }
     public var progressPercentage: Double {
-        guard chapters.indices.contains(currentChapterIndex) else { return 0 }
-        let total = chapters.reduce(0) { $0 + $1.readingLength }
+        let values = summaries
+        guard values.indices.contains(currentChapterIndex) else { return 0 }
+        let total = values.reduce(0) { $0 + $1.readingLength }
         guard total > 0 else { return 0 }
-        let previous = chapters.prefix(currentChapterIndex).reduce(0) { $0 + $1.readingLength }
-        let current = min(chapters[currentChapterIndex].readingLength, max(0, visibleEndOffset ?? 0))
+        let previous = values.prefix(currentChapterIndex).reduce(0) { $0 + $1.readingLength }
+        let current = min(values[currentChapterIndex].readingLength, max(0, visibleEndOffset ?? 0))
         return min(100, Double(previous + current) / Double(total) * 100)
     }
 }

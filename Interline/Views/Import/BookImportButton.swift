@@ -50,7 +50,7 @@ struct ImportPreviewView: View {
 
     private var duplicate: Book? {
         guard let parsed else { return nil }
-        return appState.books.first { !$0.chapters.isEmpty && ($0.id == parsed.book.id || $0.contentFingerprint == parsed.book.contentFingerprint) }
+        return appState.books.first {  $0.contentsUnavailable != true && ($0.id == parsed.book.id || $0.contentFingerprint == parsed.book.contentFingerprint) }
     }
 
     var body: some View {

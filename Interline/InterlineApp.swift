@@ -11,20 +11,24 @@ struct InterlineApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.environment["INTERLINE_UI_TESTING"] == "1" {
             // UI smoke tests never read or reset a person's actual library.
-            let name = "InterlineUISmoke-" + UUID().uuidString
+            let name = "InterlineUISmoke-" + (ProcessInfo.processInfo.environment["INTERLINE_UI_TEST_SUITE"] ?? UUID().uuidString)
             let defaults = UserDefaults(suiteName: name)!
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-            _appState = StateObject(wrappedValue: AppState(storage: ReadingStorage(defaults: defaults, directory: directory)))
+            if ProcessInfo.processInfo.environment["INTERLINE_UI_FAIL_NOTE_SAVE"] == "1" {
+                try? FileManager.default.createDirectory(at: directory.appendingPathComponent("annotations-v1.json"), withIntermediateDirectories: true)
+            }
+            _appState = StateObject(wrappedValue: AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true))
             return
         }
         #endif
-        _appState = StateObject(wrappedValue: AppState())
+        _appState = StateObject(wrappedValue: AppState(loadsContentsOnDemand: true))
     }
 
     var body: some Scene {
         WindowGroup {
             RootContentView()
                 .environmentObject(appState)
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in appState.handleMemoryWarning() }
         }
     }
 }

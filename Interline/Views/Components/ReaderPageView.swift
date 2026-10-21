@@ -6,6 +6,7 @@ struct ReaderPageView: UIViewRepresentable {
     let pagination: ChapterPagination
     let pageIndex: Int
     let annotations: [ReadingAnnotation]
+    let searchHighlight: ReadingHighlight?
 
     func makeUIView(context: Context) -> ReaderDrawingView {
         let view = ReaderDrawingView()
@@ -17,6 +18,7 @@ struct ReaderPageView: UIViewRepresentable {
         view.pagination = pagination
         view.pageIndex = pageIndex
         view.annotations = annotations
+        view.searchHighlight = searchHighlight
         view.setNeedsDisplay()
     }
 }
@@ -25,6 +27,7 @@ final class ReaderDrawingView: UIView {
     var pagination: ChapterPagination?
     var pageIndex = 0
     var annotations: [ReadingAnnotation] = []
+    var searchHighlight: ReadingHighlight?
 
     override func draw(_ rect: CGRect) {
         guard let pagination, pagination.pages.indices.contains(pageIndex),
@@ -35,7 +38,9 @@ final class ReaderDrawingView: UIView {
         context.translateBy(x: 0, y: pagination.size.height)
         context.scaleBy(x: 1, y: -1)
         let notes = annotations.filter { $0.chapterID == pagination.pages[pageIndex].chapterID }
-        if !notes.isEmpty {
+        let highlight = searchHighlight?.chapterID == pagination.pages[pageIndex].chapterID ? searchHighlight : nil
+        let ranges = notes.map(\.range) + (highlight.map { [$0.range] } ?? [])
+        if !ranges.isEmpty {
             let lines = CTFrameGetLines(frame) as! [CTLine]
             var origins = Array(repeating: CGPoint.zero, count: lines.count)
             if !origins.isEmpty { CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins) }
@@ -44,8 +49,8 @@ final class ReaderDrawingView: UIView {
                 let lineRange = CTLineGetStringRange(line)
                 var ascent: CGFloat = 0, descent: CGFloat = 0
                 _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
-                for note in notes {
-                    let intersection = NSIntersectionRange(NSRange(location: lineRange.location, length: lineRange.length), note.range)
+                for range in ranges {
+                    let intersection = NSIntersectionRange(NSRange(location: lineRange.location, length: lineRange.length), range)
                     guard intersection.length > 0 else { continue }
                     let start = CTLineGetOffsetForStringIndex(line, intersection.location, nil)
                     let end = CTLineGetOffsetForStringIndex(line, NSMaxRange(intersection), nil)

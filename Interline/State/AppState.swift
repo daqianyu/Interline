@@ -21,13 +21,30 @@ public final class AppState: ObservableObject {
     @Published public var searchText = ""
     @Published public var isSearchPresented = false
     @Published public var isEditingBookshelf = false
-    @Published public var toastMessage: String?
+    @Published public var notice: AppNotice?
+    public var toastMessage: String? { notice?.message }
+    @Published public internal(set) var maintenance = LibraryMaintenanceState()
+    @Published public internal(set) var drafts: [NoteDraft] = []
+    @Published public internal(set) var isMaintenanceBusy = false
+    @Published public private(set) var isLoadingBook = false
+    @Published public private(set) var isImporting = false
+    @Published public var isStoragePresented = false
+    @Published public var shelfSort = ShelfSort.recentlyRead
+    @Published public var shelfFilter = ShelfFilter.all
+    @Published public private(set) var navigationHistory: [ReadingLocation] = []
+    @Published public private(set) var searchHighlight: ReadingHighlight?
+    private var highlightTask: Task<Void, Never>?
+    private var bookLoadTask: Task<Void, Never>?
+    private var bookLoadGeneration = UUID()
+    let loadsContentsOnDemand: Bool
+    private var pendingLocation: ReadingLocation?
+    private var pendingHighlight: ReadingHighlight?
 
-    private var deletedBookBackup: (book: Book, index: Int)?
+    var deletedBookBackup: (book: Book, index: Int)?
     private var toastDismissTask: Task<Void, Never>?
     private var viewportSize: CGSize = .zero
     private var textScale: CGFloat = 1
-    private let storage: ReadingStorage
+    let storage: ReadingStorage
     private let usesBackgroundLayout: Bool
     private var paginationTask: Task<Void, Never>?
     private var paginationWorker: Task<[PageSlice], Error>?
@@ -39,19 +56,24 @@ public final class AppState: ObservableObject {
         let height: Int
         let fontSize: CGFloat
         let spacing: CGFloat
+        let paragraphSpacing: CGFloat
         let family: ReadingFontFamily
     }
     private var rangeCache: [LayoutKey: [PageSlice]] = [:]
     private var cacheOrder: [LayoutKey] = []
 
-    public init(storage: ReadingStorage = .shared, usesBackgroundLayout: Bool = true) {
+    public init(storage: ReadingStorage = .shared, usesBackgroundLayout: Bool = true, loadsContentsOnDemand: Bool = false) {
         self.storage = storage
         self.usesBackgroundLayout = usesBackgroundLayout
-        books = storage.loadBooks()
+        self.loadsContentsOnDemand = loadsContentsOnDemand
+        books = storage.loadBooks(includeContents: !loadsContentsOnDemand)
         preferences = storage.loadPreferences()
         bookmarks = storage.loadBookmarks()
         annotations = storage.loadAnnotations()
-        if let error = storage.lastError { showToast(error) }
+        maintenance = storage.loadMaintenance()
+        drafts = storage.loadDrafts()
+        if let error = storage.lastError { showFailure(error) }
+        if loadsContentsOnDemand { Task { [weak self] in await self?.indexMissingSummaries() } }
     }
 
     public var activeBook: Book? {
@@ -68,9 +90,7 @@ public final class AppState: ObservableObject {
     public var featuredBook: Book? { books.max(by: { $0.lastReadDate < $1.lastReadDate }) }
 
     public var filteredBooks: [Book] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return books }
-        return books.filter { $0.title.localizedCaseInsensitiveContains(query) || $0.author.localizedCaseInsensitiveContains(query) }
+        LibraryPolicy.filtered(books, query: searchText, filter: shelfFilter, sort: shelfSort)
     }
 
     public var currentBookBookmarks: [Bookmark] {
@@ -99,30 +119,84 @@ public final class AppState: ObservableObject {
     public var isCurrentPageBookmarked: Bool { bookmarks.contains(where: matchesCurrentPage) }
 
     public func openBook(_ book: Book) {
-        guard let saved = books.first(where: { $0.id == book.id }) else { return }
-        guard !saved.chapters.isEmpty else {
-            showToast("正文暂不可用，请重新导入同一 TXT 文件以恢复阅读")
+        guard !isMaintenanceBusy, let saved = books.first(where: { $0.id == book.id }) else { return }
+        guard saved.contentsUnavailable != true else {
+            showFailure("正文暂不可用，请在数据与存储中重新导入同一 TXT 文件")
             return
         }
         cancelPagination()
+        bookLoadTask?.cancel()
+        bookLoadGeneration = UUID()
         isBookSearchPresented = false
         selectionSnapshot = nil
+        navigationHistory = []
+        clearSearchHighlight()
         activeBookId = book.id
+        if loadsContentsOnDemand { books = books.map { $0.id == book.id ? $0 : $0.metadata } }
         pagination = nil
         paginationError = nil
         viewportSize = .zero
-        if var current = activeBook {
-            current.lastReadDate = Date()
-            activeBook = current
-        }
         areControlsVisible = false
         isTOCPresented = false
         isSettingsPresented = false
         isReaderPresented = true
+        if !saved.chapters.isEmpty { finishOpening(saved); return }
+        if !loadsContentsOnDemand {
+            do { var loaded = saved; loaded.chapters = try storage.readContents(bookID: book.id); finishOpening(loaded) }
+            catch { failOpening(bookID: book.id) }
+            return
+        }
+        isLoadingBook = true
+        let generation = bookLoadGeneration, store = storage
+        bookLoadTask = Task { [weak self] in
+            do {
+                let chapters = try await Task.detached(priority: .userInitiated) { try store.readContents(bookID: book.id) }.value
+                guard !Task.isCancelled, let self, self.bookLoadGeneration == generation,
+                      self.isReaderPresented, self.activeBookId == book.id else { return }
+                var loaded = self.activeBook ?? saved
+                loaded.chapters = chapters
+                self.finishOpening(loaded)
+            } catch {
+                guard !Task.isCancelled, let self, self.bookLoadGeneration == generation else { return }
+                self.failOpening(bookID: book.id)
+            }
+        }
+    }
+
+    private func finishOpening(_ value: Book) {
+        guard !value.chapters.isEmpty else { failOpening(bookID: value.id); return }
+        var book = value
+        book.updateChapterSummaries()
+        book.contentsUnavailable = false
+        if let anchor = book.readingLocation, let index = book.chapters.firstIndex(where: { $0.id == anchor.chapterID }) {
+            book.currentChapterIndex = index
+        }
+        if !book.chapters.indices.contains(book.currentChapterIndex) {
+            book.currentChapterIndex = 0; book.currentPageIndex = 0; book.readingLocation = nil
+        }
+        if let location = pendingLocation, let index = book.chapters.firstIndex(where: { $0.id == location.chapterID }) {
+            book.currentChapterIndex = index; book.currentPageIndex = 0
+            book.readingLocation = location; book.visibleEndOffset = nil
+        }
+        pendingLocation = nil
+        book.lastReadDate = Date()
+        activeBook = book
+        isLoadingBook = false
+        rebuildPagination()
+        if let highlight = pendingHighlight { pendingHighlight = nil; setSearchHighlight(highlight) }
+    }
+
+    private func failOpening(bookID: String) {
+        isLoadingBook = false
+        if let index = books.firstIndex(where: { $0.id == bookID }) { books[index].contentsUnavailable = true }
+        paginationError = "正文暂不可用，请重新导入同一 TXT 文件修复"
+        showFailure(paginationError!)
     }
 
     public func closeReader() {
         cancelPagination()
+        bookLoadTask?.cancel(); bookLoadGeneration = UUID(); isLoadingBook = false
+        pendingLocation = nil; pendingHighlight = nil
         isBookSearchPresented = false
         selectionSnapshot = nil
         isReaderPresented = false
@@ -130,6 +204,29 @@ public final class AppState: ObservableObject {
         isTOCPresented = false
         isSettingsPresented = false
         pagination = nil
+        navigationHistory = []
+        clearSearchHighlight()
+        if loadsContentsOnDemand { books = books.map(\.metadata) }
+    }
+
+    func waitForBookLoad() async { await bookLoadTask?.value }
+
+    public func handleMemoryWarning() {
+        rangeCache.removeAll(); cacheOrder.removeAll()
+        if loadsContentsOnDemand {
+            books = books.map { $0.id == activeBookId && isReaderPresented ? $0 : $0.metadata }
+        }
+    }
+
+    private func indexMissingSummaries() async {
+        let candidates = books.filter { $0.chapterSummaries == nil }
+        let store = storage
+        for book in candidates {
+            guard !Task.isCancelled else { return }
+            let summaries = try? await Task.detached(priority: .utility) { try store.readContents(bookID: book.id).map(ChapterSummary.init) }.value
+            if let summaries, let index = books.firstIndex(where: { $0.id == book.id }) { books[index].chapterSummaries = summaries }
+        }
+        if !candidates.isEmpty, !isMaintenanceBusy { checkSave(storage.saveBooks(books)) }
     }
 
     public func presentTextSelection() {
@@ -175,7 +272,7 @@ public final class AppState: ObservableObject {
         let preferences = effectivePreferences
         let size = viewportSize
         let key = LayoutKey(bookID: book.id, chapterID: chapter.id, width: Int(size.width), height: Int(size.height),
-                            fontSize: preferences.fontSize, spacing: preferences.lineSpacing, family: preferences.fontFamily)
+                            fontSize: preferences.fontSize, spacing: preferences.lineSpacing, paragraphSpacing: preferences.paragraphSpacing ?? 0.5, family: preferences.fontFamily)
         let generation = layoutGeneration
         paginationError = nil
         if let pages = rangeCache[key] {
@@ -222,7 +319,9 @@ public final class AppState: ObservableObject {
 
     private func installPagination(pages: [PageSlice], chapter: Chapter, preferences: ReadingPreferences, size: CGSize, lastPage: Bool) {
         guard var book = activeBook, book.currentChapter?.id == chapter.id else { return }
-        let layout = ChapterPagination(text: ReaderPaginator.attributedText(chapter: chapter, preferences: preferences), pages: pages, size: size)
+        var renderingPreferences = preferences
+        renderingPreferences.theme = self.preferences.theme
+        let layout = ChapterPagination(text: ReaderPaginator.attributedText(chapter: chapter, preferences: renderingPreferences), pages: pages, size: size)
         pagination = layout
         let index: Int
         if lastPage {
@@ -288,12 +387,14 @@ public final class AppState: ObservableObject {
     }
 
     public func jumpToChapter(_ index: Int) {
+        rememberCurrentLocation()
         navigateToChapter(index)
         isTOCPresented = false
         areControlsVisible = false
     }
 
     public func jumpToBookmark(_ bookmark: Bookmark) {
+        rememberCurrentLocation()
         guard var book = activeBook, bookmark.bookId == book.id else { return }
         let index = bookmark.location.flatMap { location in book.chapters.firstIndex { $0.id == location.chapterID } }
             ?? bookmark.chapterIndex
@@ -311,6 +412,7 @@ public final class AppState: ObservableObject {
     /// Maps the entire book's UTF-16 space to one stable location.
     public func jumpToProgress(_ fraction: Double) {
         guard var book = activeBook, fraction.isFinite else { return }
+        rememberCurrentLocation()
         let total = book.chapters.reduce(0) { $0 + $1.readingLength }
         guard total > 0 else { return }
         var target = min(total - 1, max(0, Int(Double(total) * min(1, max(0, fraction)))))
@@ -345,32 +447,30 @@ public final class AppState: ObservableObject {
     }
 
     public func deleteBook(id: String) {
+        guard !isMaintenanceBusy, !isImporting else { return }
         guard let index = books.firstIndex(where: { $0.id == id }) else { return }
         let book = books[index]
         var next = books
         next.remove(at: index)
-        guard storage.saveBooks(next) else { checkSave(false); return }
+        var nextMaintenance = maintenance
+        nextMaintenance.removedBooks.removeAll { $0.id == id }
+        nextMaintenance.removedBooks.append(book.metadata)
+        do {
+            try storage.beginTransaction()
+            guard storage.saveMaintenance(nextMaintenance), storage.saveBooks(next) else { throw CocoaError(.fileWriteUnknown) }
+            try storage.commitTransaction()
+        } catch { _ = storage.recoverInterruptedRestore(); showFailure(storage.lastError ?? "移出失败，请重试"); return }
         deletedBookBackup = (book, index)
+        maintenance = nextMaintenance
         books = next
         if activeBookId == id { closeReader(); activeBookId = nil }
         // Reading records and bookmarks are retained for undo; no content is purged.
-        showToast("已从书架移出《\(book.title)》")
+        showToast("已从书架移出《\(book.title)》", action: .undoRemoval)
     }
 
     public func undoDelete() {
         guard let backup = deletedBookBackup else { return }
-        var next = books
-        if !next.contains(where: { $0.id == backup.book.id }) {
-            next.insert(backup.book, at: min(backup.index, next.count))
-        }
-        guard storage.saveBooks(next) else {
-            showToast("撤销移出失败，请重试：" + (storage.lastError ?? "书架保存失败"))
-            return
-        }
-        books = next
-        deletedBookBackup = nil
-        toastDismissTask?.cancel()
-        toastMessage = nil
+        if restoreRemovedBook(id: backup.book.id) { deletedBookBackup = nil; notice = nil }
     }
 
     public func restoreSampleBooks() {
@@ -378,31 +478,50 @@ public final class AppState: ObservableObject {
         for book in SampleBooks.defaultLibrary where !next.contains(where: { $0.id == book.id }) {
             next.append(book)
         }
-        if storage.saveBooks(next) { books = storage.loadBooks() }
+        if storage.saveBooks(next) { books = storage.loadBooks(includeContents: !loadsContentsOnDemand) }
         else { checkSave(false) }
     }
 
-    public func showToast(_ message: String) {
-        toastMessage = message
+    public func showToast(_ message: String, action: NoticeAction? = nil) {
         toastDismissTask?.cancel()
+        let value = AppNotice(message: message, isError: false, action: action)
+        notice = value
         toastDismissTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !Task.isCancelled else { return }
-            self?.toastMessage = nil
+            try? await Task.sleep(for: .seconds(action == nil ? 3 : 8))
+            guard !Task.isCancelled, self?.notice?.id == value.id else { return }
+            self?.notice = nil
         }
     }
 
+    public func showFailure(_ message: String, action: NoticeAction? = nil) {
+        toastDismissTask?.cancel()
+        notice = AppNotice(message: message, isError: true, action: action)
+    }
+
     public func updatePreferences(_ modify: (inout ReadingPreferences) -> Void) {
-        modify(&preferences)
-        preferences.fontSize = min(ReadingPreferences.maxFontSize, max(ReadingPreferences.minFontSize, preferences.fontSize))
-        preferences.lineSpacing = min(20, max(0, preferences.lineSpacing))
-        checkSave(storage.savePreferences(preferences))
-        rebuildPagination()
+        let old = preferences
+        var next = old
+        modify(&next)
+        next.fontSize = min(ReadingPreferences.maxFontSize, max(ReadingPreferences.minFontSize, next.fontSize))
+        next.lineSpacing = min(20, max(0, next.lineSpacing))
+        next.horizontalMargin = min(48, max(12, next.horizontalMargin ?? 24))
+        next.paragraphSpacing = min(1.5, max(0, next.paragraphSpacing ?? 0.5))
+        guard storage.savePreferences(next) else { checkSave(false); return }
+        preferences = next
+        let needsLayout = old.fontSize != next.fontSize || old.lineSpacing != next.lineSpacing || old.fontFamily != next.fontFamily ||
+            old.usesDynamicType != next.usesDynamicType || old.paragraphSpacing != next.paragraphSpacing
+        if needsLayout { rebuildPagination() }
+        else if old.theme != next.theme, let layout = pagination, let chapter = activeBook?.currentChapter {
+            var effective = next
+            if effective.usesDynamicType ?? true { effective.fontSize *= textScale; effective.lineSpacing *= textScale }
+            pagination = ChapterPagination(text: ReaderPaginator.attributedText(chapter: chapter, preferences: effective), pages: layout.pages, size: layout.size)
+        }
     }
 
     private func checkSave(_ success: Bool) {
-        if !success { showToast(storage.lastError ?? "阅读数据保存失败") }
+        if !success { showFailure(storage.lastError ?? "阅读数据保存失败") }
     }
+
 }
 
 // MARK: - Library and anchored annotations
@@ -412,13 +531,18 @@ extension AppState {
     }
 
     public func importBook(_ imported: Book) async -> Bool {
+        guard !isMaintenanceBusy, !isImporting else { return false }
+        guard !maintenance.pendingDeletions.contains(where: { $0.id == imported.id }) else { showFailure("请先在数据与存储中完成此书的数据清理"); return false }
+        if maintenance.removedBooks.contains(where: { $0.id == imported.id }) { return restoreRemovedBook(id: imported.id) }
         guard !imported.chapters.isEmpty else { showToast("没有可导入的正文"); return false }
-        guard !books.contains(where: { $0.id == imported.id && !$0.chapters.isEmpty }) else { showToast("这本书已经在书架中"); return false }
+        guard !books.contains(where: { $0.id == imported.id && $0.contentsUnavailable != true }) else { showToast("这本书已经在书架中"); return false }
         let repairing = books.contains(where: { $0.id == imported.id })
+        isImporting = true
+        defer { isImporting = false }
         do {
             let store = storage
             try await Task.detached(priority: .userInitiated) { try store.stageContents(of: imported, replacing: repairing) }.value
-            guard !books.contains(where: { $0.id == imported.id && !$0.chapters.isEmpty }) else { return false }
+            guard !books.contains(where: { $0.id == imported.id && $0.contentsUnavailable != true }) else { return false }
             var book = imported
             if let record = storage.loadRecord(bookID: book.id), let anchor = record.location,
                let index = book.chapters.firstIndex(where: { $0.id == anchor.chapterID }) {
@@ -431,10 +555,10 @@ extension AppState {
             if let index = next.firstIndex(where: { $0.id == book.id }) { next[index] = book }
             else { next.append(book) }
             guard storage.saveBooks(next) else { checkSave(false); return false }
-            books = next
+            books = loadsContentsOnDemand ? next.map { $0.id == activeBookId && isReaderPresented ? $0 : $0.metadata } : next
             showToast("已导入《\(book.title)》")
             return true
-        } catch { showToast("正文保存失败：\(error.localizedDescription)"); return false }
+        } catch { showFailure("正文保存失败：\(error.localizedDescription)"); return false }
     }
 
     public func updateBookMetadata(id: String, title: String, author: String) {
@@ -449,41 +573,68 @@ extension AppState {
     }
 
     public func permanentlyDeleteBook(id: String) {
-        let next = books.filter { $0.id != id }
-        guard storage.saveBooks(next) else { checkSave(false); return }
-        books = next
+        guard !isMaintenanceBusy, !isImporting else { return }
+        guard let book = books.first(where: { $0.id == id }) ?? maintenance.removedBooks.first(where: { $0.id == id }) else { return }
+        var next = maintenance
+        next.removedBooks.removeAll { $0.id == id }
+        if !next.pendingDeletions.contains(where: { $0.id == id }) { next.pendingDeletions.append(PendingDeletion(id: id, title: book.title, createdAt: Date())) }
+        let active = books.filter { $0.id != id }
+        do {
+            try storage.beginTransaction()
+            guard storage.saveMaintenance(next), storage.saveBooks(active) else { throw CocoaError(.fileWriteUnknown) }
+            try storage.commitTransaction()
+        } catch { _ = storage.recoverInterruptedRestore(); showFailure(storage.lastError ?? "删除失败，请重试"); return }
+        maintenance = next; books = active; deletedBookBackup = nil
         if activeBookId == id { closeReader(); activeBookId = nil }
-        deletedBookBackup = nil
-        let remainingBookmarks = bookmarks.filter { $0.bookId != id }
-        let remainingNotes = annotations.filter { $0.bookID != id }
-        let bookmarksSaved = storage.saveBookmarks(remainingBookmarks)
-        let notesSaved = storage.saveAnnotations(remainingNotes)
-        if bookmarksSaved { bookmarks = remainingBookmarks }
-        if notesSaved { annotations = remainingNotes }
-        rangeCache = rangeCache.filter { $0.key.bookID != id }
-        cacheOrder.removeAll { $0.bookID == id }
-        let contentsRemoved = storage.purgeContents(bookID: id)
-        if bookmarksSaved && notesSaved && contentsRemoved { showToast("书籍与阅读记录已删除") }
-        else { showToast("书籍已移出，但部分数据清理失败，请重新导入后重试") }
+        rangeCache = rangeCache.filter { $0.key.bookID != id }; cacheOrder.removeAll { $0.bookID == id }
+        retryPendingDeletions()
     }
 
-    public func jumpToLocation(bookID: String, location: ReadingLocation) {
+    public func jumpToLocation(bookID: String, location: ReadingLocation, highlight: NSRange? = nil, remember: Bool = true) {
         guard let target = books.first(where: { $0.id == bookID }),
-              let index = target.chapters.firstIndex(where: { $0.id == location.chapterID }) else { return }
-        if !isReaderPresented || activeBookId != bookID { openBook(target) }
-        guard var book = activeBook else { return }
-        book.currentChapterIndex = index
-        book.currentPageIndex = 0
-        book.readingLocation = location
-        book.visibleEndOffset = nil
+              target.summaries.contains(where: { $0.id == location.chapterID }) || !isReaderPresented else { return }
+        let previous = activeBook?.readingLocation
+        let match = highlight.map { ReadingHighlight(bookID: bookID, chapterID: location.chapterID, range: $0) }
+        if !isReaderPresented || activeBookId != bookID {
+            pendingLocation = location; pendingHighlight = match
+            openBook(target)
+            return
+        }
+        guard var book = activeBook, let index = book.chapters.firstIndex(where: { $0.id == location.chapterID }) else { return }
+        if remember, let previous, previous != location { navigationHistory.append(previous); if navigationHistory.count > 20 { navigationHistory.removeFirst() } }
+        book.currentChapterIndex = index; book.currentPageIndex = 0; book.readingLocation = location; book.visibleEndOffset = nil
         activeBook = book
-        isTOCPresented = false
-        isBookSearchPresented = false
+        isTOCPresented = false; isBookSearchPresented = false
+        if let match { setSearchHighlight(match) } else { clearSearchHighlight() }
         rebuildPagination()
     }
 
+    private func rememberCurrentLocation() {
+        if let location = activeBook?.readingLocation {
+            navigationHistory.append(location)
+            if navigationHistory.count > 20 { navigationHistory.removeFirst() }
+        }
+    }
+    public func persistSession() {
+        guard !isLoadingBook, !isMaintenanceBusy, let book = activeBook, !book.chapters.isEmpty else { return }
+        checkSave(storage.saveRecord(for: book))
+    }
+    public func returnToPreviousLocation() {
+        guard let id = activeBookId, let location = navigationHistory.popLast() else { return }
+        jumpToLocation(bookID: id, location: location, remember: false)
+    }
+    private func setSearchHighlight(_ highlight: ReadingHighlight) {
+        highlightTask?.cancel(); searchHighlight = highlight
+        highlightTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            self?.searchHighlight = nil
+        }
+    }
+    private func clearSearchHighlight() { highlightTask?.cancel(); searchHighlight = nil }
+
     @discardableResult public func addAnnotation(bookID: String, chapterID: String, range: NSRange, note: String = "") -> Bool {
-        guard let chapter = books.first(where: { $0.id == bookID })?.chapters.first(where: { $0.id == chapterID }),
+        guard let chapter = annotationChapter(bookID: bookID, chapterID: chapterID),
               range.location >= 0, range.length > 0, range.location <= chapter.readingLength,
               range.length <= chapter.readingLength - range.location,
               Range(range, in: chapter.readingText) != nil else { return false }
@@ -502,11 +653,13 @@ extension AppState {
         return true
     }
 
-    public func updateAnnotation(id: String, note: String) {
+    @discardableResult public func updateAnnotation(id: String, note: String) -> Bool {
         var next = annotations
-        guard let index = next.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = next.firstIndex(where: { $0.id == id }) else { showFailure("笔记已不存在，草稿仍会保留"); return false }
         next[index].note = note
-        if storage.saveAnnotations(next) { annotations = next } else { checkSave(false) }
+        guard storage.saveAnnotations(next) else { checkSave(false); return false }
+        annotations = next
+        return true
     }
 
     public func removeAnnotation(id: String) {
