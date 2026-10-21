@@ -230,15 +230,18 @@ final class LibraryReliabilityTests: XCTestCase {
         let f = Fixture(); defer { f.clean() }
         var metadata: [Book] = []
         for index in 0..<100 {
-            let value = try book(String(index))
+            let chapter = Chapter(id: "stress-chapter-\(index)", title: "压力测试", content: [String(repeating: "长篇压力阅读。", count: 20_000)])
+            let value = Book(id: "stress-book-\(index)", title: "压力书籍 \(index)", author: "测试", chapters: [chapter])
             try f.storage.stageContents(of: value)
             metadata.append(value.metadata)
         }
         XCTAssertTrue(f.storage.saveBooks(metadata))
+        let started = Date()
         let state = AppState(storage: f.storage, loadsContentsOnDemand: true)
+        print("100_BOOK_METADATA_STARTUP_SECONDS=\(Date().timeIntervalSince(started))")
         XCTAssertEqual(state.books.count, 100)
         XCTAssertTrue(state.books.allSatisfy { $0.chapters.isEmpty && !$0.summaries.isEmpty })
-        XCTAssertGreaterThan(state.books.reduce(0) { $0 + $1.totalCharacters }, 100_000)
+        XCTAssertGreaterThan(state.books.reduce(0) { $0 + $1.totalCharacters }, 10_000_000)
     }
 
     func testPageCacheRespectsBudgetAndMemoryPressure() {
@@ -255,6 +258,51 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertNil(cache.value(for: "oversized"))
         cache.removeAll()
         XCTAssertEqual(cache.count, 0)
+    }
+
+
+    func testReimportRemovedMissingBodyRepairsAndKeepsReadingRecord() async throws {
+        let f = Fixture(); defer { f.clean() }
+        let value = try book(); XCTAssertTrue(f.storage.saveBooks([value]))
+        let state = AppState(storage: f.storage, usesBackgroundLayout: false)
+        state.openBook(value); state.prepareReader(size: CGSize(width: 280, height: 400)); state.nextPage()
+        let anchor = state.activeBook?.readingLocation
+        state.deleteBook(id: value.id)
+        try FileManager.default.removeItem(at: f.storage.contentsURL(bookID: value.id))
+        let success = await state.importBook(value)
+        XCTAssertTrue(success)
+        XCTAssertTrue(state.maintenance.removedBooks.isEmpty)
+        XCTAssertEqual(state.books.first?.readingLocation, anchor)
+        XCTAssertFalse(state.books.first?.chapters.isEmpty ?? true)
+    }
+
+
+    func testRapidBookSwitchingInstallsOnlyFinalBook() async throws {
+        let f = Fixture(); defer { f.clean() }
+        let first = try book("first"), second = try book("second")
+        XCTAssertTrue(f.storage.saveBooks([first, second]))
+        let state = AppState(storage: f.storage, loadsContentsOnDemand: true)
+        for _ in 0..<20 { state.openBook(state.books[0]); state.openBook(state.books[1]) }
+        await state.waitForBookLoad()
+        XCTAssertEqual(state.activeBookId, second.id)
+        XCTAssertEqual(state.activeBook?.chapters, second.chapters)
+        XCTAssertTrue(state.books.first(where: { $0.id == first.id })?.chapters.isEmpty == true)
+        XCTAssertFalse(state.isLoadingBook)
+    }
+
+    func testUnreadableRecoveryJournalBlocksWritesAndCanBeExported() throws {
+        let f = Fixture(); defer { f.clean() }
+        let original = try book("original"), other = try book("other")
+        XCTAssertTrue(f.storage.saveBooks([original]))
+        let catalog = try Data(contentsOf: f.storage.catalogURL)
+        let journal = f.storage.directory.appendingPathComponent("restore-journal-v1.json")
+        try Data("interrupted damaged journal".utf8).write(to: journal)
+        XCTAssertTrue(f.storage.loadBooks().isEmpty)
+        XCTAssertFalse(f.storage.saveBooks([other]))
+        XCTAssertFalse(f.storage.saveAnnotations([]))
+        XCTAssertFalse(f.storage.savePreferences(ReadingPreferences()))
+        XCTAssertEqual(try Data(contentsOf: f.storage.catalogURL), catalog)
+        XCTAssertTrue(f.storage.recoveryFiles().contains { $0.url == journal })
     }
 
 }

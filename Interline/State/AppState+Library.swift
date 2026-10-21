@@ -4,16 +4,20 @@ extension AppState {
     public func importBook(_ imported: Book) async -> Bool {
         guard !isMaintenanceBusy, !isImporting else { return false }
         guard !maintenance.pendingDeletions.contains(where: { $0.id == imported.id }) else { showFailure("请先在数据与存储中完成此书的数据清理"); return false }
-        if maintenance.removedBooks.contains(where: { $0.id == imported.id }) { return restoreRemovedBook(id: imported.id) }
+        let wasRemoved = maintenance.removedBooks.contains(where: { $0.id == imported.id })
         guard !imported.chapters.isEmpty else { showToast("没有可导入的正文"); return false }
         guard !books.contains(where: { $0.id == imported.id && $0.contentsUnavailable != true }) else { showToast("这本书已经在书架中"); return false }
-        let repairing = books.contains(where: { $0.id == imported.id })
+        let repairing = wasRemoved || books.contains(where: { $0.id == imported.id })
         isImporting = true
         defer { isImporting = false }
         do {
             let store = storage
             try await Task.detached(priority: .userInitiated) { try store.stageContents(of: imported, replacing: repairing) }.value
             guard !books.contains(where: { $0.id == imported.id && $0.contentsUnavailable != true }) else { return false }
+            if wasRemoved {
+                isImporting = false
+                return restoreRemovedBook(id: imported.id)
+            }
             var book = imported
             if let record = storage.loadRecord(bookID: book.id), let anchor = record.location,
                let index = book.chapters.firstIndex(where: { $0.id == anchor.chapterID }) {
@@ -75,7 +79,7 @@ extension AppState {
         if remember, let previous, previous != location { navigationHistory.append(previous); if navigationHistory.count > 20 { navigationHistory.removeFirst() } }
         book.currentChapterIndex = index; book.currentPageIndex = 0; book.readingLocation = location; book.visibleEndOffset = nil
         activeBook = book
-        isTOCPresented = false; isBookSearchPresented = false
+        isTOCPresented = false; isBookSearchPresented = false; areControlsVisible = false
         if let match { setSearchHighlight(match) } else { clearSearchHighlight() }
         rebuildPagination()
     }

@@ -147,6 +147,7 @@ public struct ReaderContainerView: View {
                         }
                         .accessibilityLabel("搜索正文")
                         .accessibilityIdentifier("readerSearch")
+                        .disabled(appState.isLoadingBook || book.chapters.isEmpty)
                         Button {
                             appState.presentTextSelection()
                         } label: {
@@ -185,7 +186,7 @@ public struct ReaderContainerView: View {
 
                     if !appState.navigationHistory.isEmpty {
                         Button("返回刚才位置", systemImage: "arrow.uturn.backward") { appState.returnToPreviousLocation() }
-                            .padding(10).interlineGlass(cornerRadius: 16)
+                            .padding(.horizontal, 12).frame(minHeight: 44).interlineGlass(cornerRadius: 16)
                             .accessibilityIdentifier("returnToReadingLocation")
                     }
                     ReaderProgressView()
@@ -327,7 +328,7 @@ public struct ReaderSettingsSheetView: View {
                             }) {
                                 Text("A-")
                                     .font(.system(size: 15, weight: .semibold))
-                                    .frame(width: 44, height: 36)
+                                    .frame(width: 44, height: 44)
                                     .background(ThemeTokens.Colors.tertiarySystemBackground)
                                     .cornerRadius(8)
                             }
@@ -343,7 +344,7 @@ public struct ReaderSettingsSheetView: View {
                             }) {
                                 Text("A+")
                                     .font(.system(size: 17, weight: .semibold))
-                                    .frame(width: 44, height: 36)
+                                    .frame(width: 44, height: 44)
                                     .background(ThemeTokens.Colors.tertiarySystemBackground)
                                     .cornerRadius(8)
                             }
@@ -419,6 +420,7 @@ public struct ReaderSettingsSheetView: View {
                                             .stroke(appState.preferences.theme == theme ? ThemeTokens.Colors.link : Color.gray.opacity(0.3), lineWidth: appState.preferences.theme == theme ? 2.5 : 1)
                                     )
                                 }
+                                .frame(width: 44, height: 44)
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(theme.displayName)
                                 .accessibilityAddTraits(appState.preferences.theme == theme ? .isSelected : [])

@@ -131,7 +131,7 @@ final class ReaderFlowTests: XCTestCase {
         app.buttons["readerTOC"].tap()
         XCTAssertTrue(app.segmentedControls.buttons["笔记 (1)"].waitForExistence(timeout: 5))
         app.segmentedControls.buttons["笔记 (1)"].tap()
-        XCTAssertTrue(app.staticTexts["A reading note"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A reading note")).firstMatch.waitForExistence(timeout: 5))
         screenshot(app, name: "SavedNotes")
     }
 
@@ -167,6 +167,18 @@ final class ReaderFlowTests: XCTestCase {
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertEqual(readyCanvas(app).label, text)
+    }
+
+
+    func testAccessibilityLabelsAndTraitsOnShelfAndReader() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["continueReading"].waitForExistence(timeout: 10))
+        try app.performAccessibilityAudit(for: [.sufficientElementDescription, .trait])
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["readerTOC"].waitForExistence(timeout: 5))
+        try app.performAccessibilityAudit(for: [.sufficientElementDescription, .trait])
     }
 
 }

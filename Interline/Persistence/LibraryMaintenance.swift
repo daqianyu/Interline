@@ -2,7 +2,10 @@ import Foundation
 
 extension ReadingStorage {
     public nonisolated func readContents(bookID: String) throws -> [Chapter] {
-        try JSONDecoder().decode([Chapter].self, from: Data(contentsOf: contentsURL(bookID: bookID)))
+        try Task.checkCancellation()
+        let chapters = try JSONDecoder().decode([Chapter].self, from: Data(contentsOf: contentsURL(bookID: bookID)))
+        try Task.checkCancellation()
+        return chapters
     }
 
     func readFile<T: Decodable>(_ type: T.Type, name: String, fallback: T) -> T {
@@ -34,7 +37,8 @@ extension ReadingStorage {
 
     public func recoveryFiles() -> [RecoveryFile] {
         let folder = directory.appendingPathComponent("Recovery")
-        let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey])) ?? []
+        var urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey])) ?? []
+        if FileManager.default.fileExists(atPath: journalURL.path) { urls.append(journalURL) }
         return urls.compactMap { url in
             guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]), values.isRegularFile == true else { return nil }
             return RecoveryFile(url: url, date: values.contentModificationDate ?? .distantPast, size: values.fileSize ?? 0)
@@ -88,6 +92,25 @@ extension ReadingStorage {
     }
 
     public nonisolated static let maximumBackupBytes = 256 * 1_024 * 1_024
+    public nonisolated static func readBackup(url: URL) throws -> Data {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        var result: Result<Data, Error>?
+        var coordinationError: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &coordinationError) { file in
+            result = Result {
+                let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= maximumBackupBytes else { throw CocoaError(.fileReadTooLarge) }
+                let data = try Data(contentsOf: file)
+                _ = try decodeBackup(data)
+                return data
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw CocoaError(.fileReadUnknown) }
+        return try result.get()
+    }
+
     public nonisolated static func decodeBackup(_ data: Data) throws -> LibraryBackup {
         guard data.count <= maximumBackupBytes else { throw CocoaError(.fileReadTooLarge) }
         let backup = try JSONDecoder().decode(LibraryBackup.self, from: data)

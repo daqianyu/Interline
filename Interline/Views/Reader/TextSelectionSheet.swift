@@ -21,7 +21,7 @@ struct TextSelectionSheet: View {
                 Text("长按正文选择文字，可复制、查询、标注或写笔记。")
                     .font(.callout).foregroundStyle(.secondary).padding(.horizontal)
                 Button("选中本段") { selectParagraph() }
-                    .padding(.horizontal).accessibilityIdentifier("selectParagraph")
+                    .frame(minHeight: 44).padding(.horizontal).accessibilityIdentifier("selectParagraph")
                 SelectableTextView(text: text, preferences: preferences, selection: $selection)
                     .accessibilityIdentifier("selectableText")
             }

@@ -24,11 +24,12 @@ struct LibraryDataView: View {
     @State private var deletingBook: Book?
     @State private var restoreData: Data?
     @State private var confirmingRestore = false
+    @State private var readingBackup = false
 
     var body: some View {
         NavigationStack {
             Form {
-                if appState.isMaintenanceBusy { Section { ProgressView("正在处理资料，请稍候") } }
+                if appState.isMaintenanceBusy || readingBackup { Section { ProgressView("正在处理资料，请稍候") } }
                 if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red).accessibilityIdentifier("storageError") } }
                 Section("备份与恢复") {
                     Button("导出完整备份", systemImage: "square.and.arrow.up") {
@@ -39,7 +40,7 @@ struct LibraryDataView: View {
                     }.accessibilityIdentifier("exportLibraryBackup")
                     Button("从备份恢复", systemImage: "arrow.counterclockwise") { importing = true }
                         .accessibilityIdentifier("restoreLibraryBackup")
-                    Text("备份包含正文、阅读位置、书签、笔记、草稿及设置。恢复会合并资料；已有书籍保留当前记录，空书库恢复备份设置。文件包含私人笔记，请妥善保存。")
+                    Text("备份包含正文、阅读位置、书签、笔记、草稿及设置。恢复会合并资料；已有书籍保留当前记录，空书库恢复备份设置。备份未加密，包含私人笔记，请妥善保存。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("正文修复") {
@@ -72,7 +73,7 @@ struct LibraryDataView: View {
                         Button { editingDraft = draft } label: {
                             VStack(alignment: .leading) { Text(draft.quote).lineLimit(2); Text(draft.text).foregroundStyle(.secondary).lineLimit(2) }
                         }
-                        .swipeActions { Button("丢弃", role: .destructive) { _ = appState.removeDraft(id: draft.id) } }
+                        .swipeActions(allowsFullSwipe: false) { Button("丢弃", role: .destructive) { _ = appState.removeDraft(id: draft.id) } }
                     }
                     if appState.drafts.isEmpty { Text("暂无草稿").foregroundStyle(.secondary) }
                 }
@@ -90,10 +91,10 @@ struct LibraryDataView: View {
                     Button("重试中断的数据恢复") { appState.retryInterruptedRestore(); recovery = appState.recoveryFiles() }
                 }
             }
-            .disabled(appState.isMaintenanceBusy)
+            .disabled(appState.isMaintenanceBusy || readingBackup || appState.isImporting)
             .navigationTitle("数据与存储").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.disabled(appState.isMaintenanceBusy) } }
-            .interactiveDismissDisabled(appState.isMaintenanceBusy)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.disabled(appState.isMaintenanceBusy || readingBackup || appState.isImporting) } }
+            .interactiveDismissDisabled(appState.isMaintenanceBusy || readingBackup)
             .onAppear { recovery = appState.recoveryFiles() }
             .sheet(item: $editingDraft) { draft in NoteEditorView(draft: draft) }
             .confirmationDialog("永久删除《\(deletingBook?.title ?? "")》及其笔记？", isPresented: Binding(get: { deletingBook != nil }, set: { if !$0 { deletingBook = nil } }), titleVisibility: .visible) {
@@ -112,17 +113,11 @@ struct LibraryDataView: View {
             .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
                 switch result {
                 case .success(let url):
+                    readingBackup = true
                     Task {
+                        defer { readingBackup = false }
                         do {
-                            restoreData = try await Task.detached(priority: .userInitiated) {
-                                let access = url.startAccessingSecurityScopedResource()
-                                defer { if access { url.stopAccessingSecurityScopedResource() } }
-                                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                                guard size <= ReadingStorage.maximumBackupBytes else { throw CocoaError(.fileReadTooLarge) }
-                                let data = try Data(contentsOf: url)
-                                _ = try ReadingStorage.decodeBackup(data)
-                                return data
-                            }.value
+                            restoreData = try await Task.detached(priority: .userInitiated) { try ReadingStorage.readBackup(url: url) }.value
                             confirmingRestore = true
                         } catch { errorMessage = "无法读取备份：\(error.localizedDescription)" }
                     }

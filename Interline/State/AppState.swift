@@ -34,6 +34,7 @@ public final class AppState: ObservableObject {
     @Published public internal(set) var navigationHistory: [ReadingLocation] = []
     @Published public internal(set) var searchHighlight: ReadingHighlight?
     var highlightTask: Task<Void, Never>?
+    let contentsLoader = BookContentsLoader()
     private var bookLoadTask: Task<Void, Never>?
     private var bookLoadGeneration = UUID()
     let loadsContentsOnDemand: Bool
@@ -149,7 +150,8 @@ public final class AppState: ObservableObject {
         let generation = bookLoadGeneration, store = storage
         bookLoadTask = Task { [weak self] in
             do {
-                let chapters = try await Task.detached(priority: .userInitiated) { try store.readContents(bookID: book.id) }.value
+                let chapters = try await self?.contentsLoader.load(bookID: book.id, storage: store)
+                guard let chapters else { return }
                 guard !Task.isCancelled, let self, self.bookLoadGeneration == generation,
                       self.isReaderPresented, self.activeBookId == book.id else { return }
                 var loaded = self.activeBook ?? saved
@@ -256,6 +258,7 @@ public final class AppState: ObservableObject {
     private func cancelPagination() {
         paginationTask?.cancel()
         paginationWorker?.cancel()
+        paginationTask = nil; paginationWorker = nil
         layoutGeneration = UUID()
         isPaginating = false
     }
@@ -300,6 +303,7 @@ public final class AppState: ObservableObject {
                 self.remember(pages, for: key)
                 self.installPagination(pages: pages, chapter: chapter, preferences: preferences, size: size, lastPage: goToLastPage)
                 self.isPaginating = false
+                self.paginationWorker = nil
             } catch {
                 guard !Task.isCancelled, let self, self.layoutGeneration == generation else { return }
                 self.pagination = nil

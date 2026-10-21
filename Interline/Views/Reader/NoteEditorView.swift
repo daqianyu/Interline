@@ -22,8 +22,14 @@ struct NoteEditorView: View {
                     TextEditor(text: $note).frame(minHeight: 160).accessibilityLabel("笔记内容")
                         .accessibilityIdentifier("noteEditor")
                 }
-                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red).accessibilityIdentifier("noteSaveError") } }
                 Section { Text("输入自动保留为草稿；取消后可在数据与存储中继续编辑。").font(.caption).foregroundStyle(.secondary) }
+            }
+            .safeAreaInset(edge: .top) {
+                if let errorMessage {
+                    Text(errorMessage).font(.callout).foregroundStyle(.red)
+                        .padding().frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.08)).accessibilityIdentifier("noteSaveError")
+                }
             }
             .navigationTitle(draft.annotationID == nil ? "写笔记" : "编辑笔记")
             .toolbar {

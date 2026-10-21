@@ -5,8 +5,10 @@ extension AppState {
         guard !isMaintenanceBusy, !isImporting, let book = maintenance.removedBooks.first(where: { $0.id == id }) else { return false }
         var next = maintenance
         next.removedBooks.removeAll { $0.id == id }
+        var restored = book
+        restored.contentsUnavailable = false
         var library = books
-        if !library.contains(where: { $0.id == id }) { library.insert(book, at: min(deletedBookBackup?.book.id == id ? (deletedBookBackup?.index ?? library.count) : library.count, library.count)) }
+        if !library.contains(where: { $0.id == id }) { library.insert(restored, at: min(deletedBookBackup?.book.id == id ? (deletedBookBackup?.index ?? library.count) : library.count, library.count)) }
         do {
             try storage.beginTransaction()
             guard storage.saveMaintenance(next), storage.saveBooks(library) else { throw CocoaError(.fileWriteUnknown) }
@@ -40,6 +42,7 @@ extension AppState {
     public func retryInterruptedRestore() {
         guard storage.recoverInterruptedRestore() else { showFailure(storage.lastError ?? "恢复失败"); return }
         reloadLibrary()
+        showToast("数据恢复检查已完成")
     }
     private func reloadLibrary() {
         books = storage.loadBooks(includeContents: !loadsContentsOnDemand)
@@ -138,8 +141,14 @@ extension AppState {
     public func details(for book: Book) async throws -> Book {
         if !book.chapters.isEmpty { return book }
         let store = storage
-        let chapters = try await Task.detached(priority: .userInitiated) { try store.readContents(bookID: book.id) }.value
-        var loaded = book; loaded.chapters = chapters; loaded.updateChapterSummaries()
-        return loaded
+        do {
+            let chapters = try await contentsLoader.load(bookID: book.id, storage: store)
+            var loaded = book; loaded.chapters = chapters; loaded.updateChapterSummaries()
+            return loaded
+        } catch is CancellationError { throw CancellationError() }
+        catch {
+            if let index = books.firstIndex(where: { $0.id == book.id }) { books[index].contentsUnavailable = true }
+            throw error
+        }
     }
 }
