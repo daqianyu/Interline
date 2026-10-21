@@ -30,7 +30,6 @@ struct LibraryDataView: View {
         NavigationStack {
             Form {
                 if appState.isMaintenanceBusy || readingBackup { Section { ProgressView("正在处理资料，请稍候") } }
-                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red).accessibilityIdentifier("storageError") } }
                 Section("备份与恢复") {
                     Button("导出完整备份", systemImage: "square.and.arrow.up") {
                         Task {
@@ -92,6 +91,19 @@ struct LibraryDataView: View {
                 }
             }
             .disabled(appState.isMaintenanceBusy || readingBackup || appState.isImporting)
+            .safeAreaInset(edge: .top) {
+                if let errorMessage {
+                    HStack {
+                        Text(errorMessage).font(.callout).foregroundStyle(.red)
+                        Spacer()
+                        Button { self.errorMessage = nil; if appState.notice?.isError == true { appState.notice = nil } } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                            .accessibilityLabel("关闭数据错误提示")
+                    }.padding(.horizontal).background(Color.red.opacity(0.08)).accessibilityIdentifier("storageError")
+                }
+            }
+            .onChange(of: appState.notice?.id) { _, _ in
+                if let notice = appState.notice { errorMessage = notice.isError ? notice.message : nil }
+            }
             .navigationTitle("数据与存储").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.disabled(appState.isMaintenanceBusy || readingBackup || appState.isImporting) } }
             .interactiveDismissDisabled(appState.isMaintenanceBusy || readingBackup)

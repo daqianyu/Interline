@@ -349,4 +349,23 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertEqual(restored.activeBook?.chapters, value.chapters)
     }
 
+
+    func testFailedRestorationDoesNotOfferUndoForADifferentRemovedBook() throws {
+        let f = Fixture(); defer { f.clean() }
+        let first = try book("first"), second = try book("second")
+        XCTAssertTrue(f.storage.saveBooks([first, second]))
+        let state = AppState(storage: f.storage)
+        state.deleteBook(id: first.id); state.deleteBook(id: second.id)
+        let catalog = try Data(contentsOf: f.storage.catalogURL)
+        try FileManager.default.removeItem(at: f.storage.catalogURL)
+        try FileManager.default.createDirectory(at: f.storage.catalogURL, withIntermediateDirectories: false)
+        XCTAssertFalse(state.restoreRemovedBook(id: first.id))
+        XCTAssertNil(state.notice?.action)
+        XCTAssertTrue(state.canUndoDelete)
+        try FileManager.default.removeItem(at: f.storage.catalogURL)
+        try catalog.write(to: f.storage.catalogURL)
+        state.undoDelete()
+        XCTAssertEqual(state.books.map(\.id), [second.id])
+    }
+
 }

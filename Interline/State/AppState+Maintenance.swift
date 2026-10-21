@@ -13,7 +13,7 @@ extension AppState {
             try storage.beginTransaction()
             guard storage.saveMaintenance(next), storage.saveBooks(library) else { throw CocoaError(.fileWriteUnknown) }
             try storage.commitTransaction()
-        } catch { _ = storage.recoverInterruptedRestore(); showFailure("撤销移出失败，请重试：" + (storage.lastError ?? "保存失败"), action: .undoRemoval); return false }
+        } catch { _ = storage.recoverInterruptedRestore(); showFailure("撤销移出失败，请重试：" + (storage.lastError ?? "保存失败"), action: deletedBookBackup?.book.id == id ? .undoRemoval : nil); return false }
         maintenance = next
         books = storage.loadBooks(includeContents: !loadsContentsOnDemand)
         showToast("已恢复《\(book.title)》")
