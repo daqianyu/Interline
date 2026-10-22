@@ -104,9 +104,7 @@ extension ReadingStorage {
         var coordinationError: NSError?
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &coordinationError) { file in
             result = Result {
-                let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= maximumBackupBytes else { throw LibraryBackupError.tooLarge }
-                let data = try Data(contentsOf: file)
+                let data = try BoundedBackupInput.read(file, maximumBytes: maximumBackupBytes)
                 _ = try decodeBackup(data)
                 return data
             }
@@ -121,26 +119,14 @@ extension ReadingStorage {
         let backup = try JSONDecoder().decode(LibraryBackup.self, from: data)
         guard backup.version == 1 else { throw CocoaError(.coderReadCorrupt) }
         let all = backup.books + backup.removedBooks
-        guard all.count <= 10_000, Set(all.map(\.id)).count == all.count else { throw CocoaError(.coderReadCorrupt) }
-        var chapters: [String: [String: Chapter]] = [:]
+        let ids = try BackupValidation.bookIDs(all)
+        try BackupValidation.references(bookIDs: ids, bookmarks: backup.bookmarks,
+                                        annotations: backup.annotations, drafts: backup.drafts)
+        let notes = Dictionary(grouping: backup.annotations, by: \.bookID)
+        let drafts = Dictionary(grouping: backup.drafts, by: \.bookID)
         for book in all {
-            guard !book.id.isEmpty, !book.chapters.isEmpty,
-                  book.chapters.reduce(0, { $0 + $1.readingLength }) <= 24 * 1_024 * 1_024,
-                  Set(book.chapters.map(\.id)).count == book.chapters.count else { throw CocoaError(.coderReadCorrupt) }
-            chapters[book.id] = Dictionary(uniqueKeysWithValues: book.chapters.map { ($0.id, $0) })
+            try BackupValidation.book(book, annotations: notes[book.id] ?? [], drafts: drafts[book.id] ?? [])
         }
-        func valid(bookID: String, chapterID: String, range: NSRange, quote: String) -> Bool {
-            guard let chapter = chapters[bookID]?[chapterID], range.location >= 0, range.length > 0,
-                  range.location <= chapter.readingLength, range.length <= chapter.readingLength - range.location else { return false }
-            let text = chapter.readingText as NSString
-            return text.rangeOfComposedCharacterSequences(for: range) == range && text.substring(with: range) == quote
-        }
-        guard Set(backup.annotations.map(\.id)).count == backup.annotations.count,
-              Set(backup.bookmarks.map(\.id)).count == backup.bookmarks.count,
-              Set(backup.drafts.map(\.id)).count == backup.drafts.count,
-              backup.annotations.allSatisfy({ valid(bookID: $0.bookID, chapterID: $0.chapterID, range: $0.range, quote: $0.quote) }),
-              backup.drafts.allSatisfy({ valid(bookID: $0.bookID, chapterID: $0.chapterID, range: $0.range, quote: $0.quote) }),
-              backup.bookmarks.allSatisfy({ chapters[$0.bookId] != nil }) else { throw CocoaError(.coderReadCorrupt) }
         return backup
     }
 
@@ -148,22 +134,15 @@ extension ReadingStorage {
                             bookmarks: [Bookmark], annotations: [ReadingAnnotation], drafts: [NoteDraft]) async throws -> Data {
         let store = self
         let active = books, removed = maintenance.removedBooks
-        return try await Task.detached(priority: .userInitiated) {
-            func hydrate(_ values: [Book]) throws -> [Book] {
-                try values.map { saved in
-                    var book = saved
-                    if book.chapters.isEmpty { book.chapters = try store.readContents(bookID: book.id) }
-                    guard !book.chapters.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-                    book.contentsUnavailable = false
-                    return book
-                }
-            }
-            let ids = Set((active + removed).map(\.id))
-            let archive = LibraryBackup(version: 1, createdAt: Date(), books: try hydrate(active), removedBooks: try hydrate(removed),
-                preferences: preferences, bookmarks: bookmarks.filter { ids.contains($0.bookId) }, annotations: annotations.filter { ids.contains($0.bookID) }, drafts: drafts.filter { ids.contains($0.bookID) })
-            let data = try JSONEncoder().encode(archive)
-            guard data.count <= Self.maximumBackupBytes else { throw LibraryBackupError.tooLarge }
+        let task = Task.detached(priority: .userInitiated) {
+            try V1BackupWriter.encode(books: active, removedBooks: removed, preferences: preferences,
+                                      bookmarks: bookmarks, annotations: annotations, drafts: drafts,
+                                      contentsURL: { store.contentsURL(bookID: $0) })
+        }
+        return try await withTaskCancellationHandler {
+            let data = try await task.value
+            try Task.checkCancellation()
             return data
-        }.value
+        } onCancel: { task.cancel() }
     }
 }
