@@ -23,6 +23,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Test verification summary classifier
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Verify toolchain
         run: |
           xcodebuild -version
@@ -52,6 +55,7 @@ jobs:
           PY
 
       - name: Build and test reader
+        id: reader_tests
         shell: bash
         run: |
           set -o pipefail
@@ -64,6 +68,19 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             2>&1 | tee build.log
+
+      - name: Summarize verification evidence
+        if: always()
+        timeout-minutes: 1
+        env:
+          TEST_STEP_OUTCOME: ${{ steps.reader_tests.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 scripts/summarize_verification.py \
+            --log build.log \
+            --outcome "${TEST_STEP_OUTCOME:-unknown}" \
+            --job-status "${JOB_STATUS:-unknown}" \
+            --output-directory verification-summary
 
       - name: Export UI test screenshots
         if: ${{ !cancelled() }}
@@ -88,11 +105,14 @@ jobs:
             build.log
             TestResults.xcresult
             UIScreenshots
+            verification-summary
 
       - name: Upload cancelled build log
         if: cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: cancelled-build-log
-          path: build.log
+          path: |
+            build.log
+            verification-summary
           retention-days: 7

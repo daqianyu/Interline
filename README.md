@@ -26,6 +26,17 @@ Choose an installed iOS 27 iPhone simulator if the example device is unavailable
 CI uses GitHub's `xcode-27` image, checks the SDK, and selects an available simulator.
 The deployment target is iOS 27, as required by `AGENTS.md`.
 
+The `reader-verification` CI artifact contains `build.log`, the result bundle,
+UI attachments, and `verification-summary/summary.json` / `summary.md`.
+The summary links the checkout revision and workflow run, distinguishes observed
+test assertions from build/runner failures, and never retries or waives failures.
+Nested XCTest suite totals are listed separately, not added together. Missing logs
+and cancellations do not imply a passing test run. To test the classifier locally:
+
+```sh
+python3 -m unittest discover -s scripts/tests -v
+```
+
 ## Reader foundation
 
 - Core Text measures and draws the same frames using the actual reading canvas.

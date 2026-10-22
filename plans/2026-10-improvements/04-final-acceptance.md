@@ -19,18 +19,30 @@
 | 项目 | 当前结论 | 证据/剩余条件 |
 |---|---|---|
 | 计划、需求、开发、测试、验收及执行日志 | 文档检查通过 | 36 个唯一 ID；本地链接存在；需求与测试覆盖全部 ID；diff 检查通过 |
-| D01 损坏原始键值保护 | 代码完成，待 CI 验收 | HardeningPlanTests 前 4 项覆盖 T-D01-01–04 |
-| D02 真实回滚提示 | 代码完成，待 CI 验收 | HardeningPlanTests 后 2 项覆盖 T-D02-01–03；现有无效备份用例补充 T-D02-04 |
-| D03–D06、Q01–Q04 | 未验收 | 依路线逐项实施；真机用例单独保留 |
+| D01 损坏原始键值保护 | VERIFIED（约定的自动回归） | HardeningPlanTests 前 4 项覆盖 T-D01-01–04；完整 82 单元、9 UI 通过 |
+| D02 真实回滚提示 | VERIFIED（约定的自动回归） | HardeningPlanTests 后 2 项覆盖 T-D02-01–03；无效备份用例覆盖 T-D02-04；完整回归通过 |
+| Q02 无障碍检查矩阵 | 矩阵子步骤完成，整体未验收 | 14 个逐页 AX 用例、6 组环境；源码缺口登记，真人辅助导航尚未测试 |
+| Q04 失败分类与证据 | 代码及本地工具测试完成，待 workflow 集成验证 | 12 项 Python 测试；实际失败日志分类；保留原 xcodebuild 状态与测试数量 |
+| D03–D06、Q01、Q03 | 未验收 | D03 已细化设计；其余依路线逐项实施；真机用例单独保留 |
 | P01–P04、U01–U08、A01–A03 | 未验收 | 代码与界面改进、视觉/功能回归 |
 | F01–F09、U09、P05 | 未验收 | 扩展设计细化、开发、兼容和发行验证 |
 
 ## 每项证据必须包含
 
-本轮待验证代码提交：`e1f504aa13b52610559dae0786028c2ae92e686a`，
-[PR #6](https://github.com/daqianyu/Interline/pull/6)，
-[CI 39638159549](https://github.com/daqianyu/Interline/actions/runs/39638159549)。
-目前等待 CI 结果，尚未将 D01/D02 标为 VERIFIED。
+本轮 [PR #6](https://github.com/daqianyu/Interline/pull/6)：
+
+- `e1f504aa13b52610559dae0786028c2ae92e686a` 的
+  [CI 39638159549](https://github.com/daqianyu/Interline/actions/runs/39638159549)：
+  82 单元通过；9 UI 中笔记重启用例未打开目录。原始点击坐标落在动画结束后的按钮下方。
+- `17a183a156547ffed0dbc7263d618b74f44ff8a7` 的
+  [CI 39645321845](https://github.com/daqianyu/Interline/actions/runs/39645321845)：
+  82 单元通过；同一 UI 用例在稳定性检查超时，一次查询约 4.3 秒，未发生目录点击。
+- 已验证代码 `bc882682fb92401643315f9c0e35ed8bcea7b50a` 的
+  [CI 39648634021](https://github.com/daqianyu/Interline/actions/runs/39648634021)：
+  **82 项单元、9 项 UI 全部通过，构建成功**。调整初始采样和同步预算，保留全部业务断言，
+  `testNoteCanBeWrittenAndPersistedThroughRelaunch` 复验通过；D01/D02 标为 VERIFIED。
+  此后提交仅新增计划/验收记录、Q02 矩阵和 Q04 CI 工具，不改应用或 iOS 测试源代码；
+  Q04 的 workflow 集成结果单独补录，不能使用本次运行冒充已执行新增 CI 步骤。
 
 D01 的保全文件可以手动导出，不代表原损坏内容已自动修复，也不会自动纳入现有
 完整书库 JSON 备份。D04/F07 后续负责进一步完善备份范围与格式。

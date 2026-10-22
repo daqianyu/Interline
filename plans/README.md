@@ -13,6 +13,7 @@
 4. [测试验收设计](2026-10-improvements/03-test-acceptance-design.md)：用例、环境与门槛。
 5. [最终验收记录](2026-10-improvements/04-final-acceptance.md)：真实证据和发布结论。
 6. [执行日志](2026-10-improvements/05-execution-log.md)：每次完成项、变更与下一步。
+7. [无障碍检查矩阵](2026-10-improvements/06-accessibility-matrix.md)：Q02 分页面用例、证据和后续修复归属。
 
 ## 状态规则
 
