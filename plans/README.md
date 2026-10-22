@@ -14,6 +14,7 @@
 5. [最终验收记录](2026-10-improvements/04-final-acceptance.md)：真实证据和发布结论。
 6. [执行日志](2026-10-improvements/05-execution-log.md)：每次完成项、变更与下一步。
 7. [无障碍检查矩阵](2026-10-improvements/06-accessibility-matrix.md)：Q02 分页面用例、证据和后续修复归属。
+8. [备份 v2 格式设计](2026-10-improvements/07-backup-v2-format.md)：D04 文件结构、临时文件生命周期和兼容验收。
 
 ## 状态规则
 
