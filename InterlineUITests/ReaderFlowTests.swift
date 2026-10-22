@@ -254,6 +254,23 @@ final class ReaderFlowTests: XCTestCase {
         cancel.tap()
         XCTAssertTrue(exportButton.waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["storageError"].exists)
+        app.terminate()
+        app.launchArguments += ["-AppleInterfaceStyle", "Dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        app.buttons["libraryMenu"].tap()
+        app.buttons["数据与存储"].tap()
+        let help = app.staticTexts["backupFormatHelp"]
+        XCTAssertTrue(help.waitForExistence(timeout: 10))
+        for _ in 0..<3 where !help.isHittable { app.swipeUp() }
+        XCTAssertTrue(help.isHittable)
+        screenshot(app, name: "BackupHelpDarkLargeText")
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = expectation(for: NSPredicate { _, _ in app.frame.width > app.frame.height }, evaluatedWith: app)
+        wait(for: [landscape], timeout: 10)
+        for _ in 0..<3 where !help.isHittable { app.swipeUp() }
+        XCTAssertTrue(help.isHittable)
+        screenshot(app, name: "BackupHelpDarkLargeLandscape")
     }
 
     func testReadingSurvivesBackgroundAndForeground() {

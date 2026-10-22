@@ -6,7 +6,8 @@ final class BackupMemoryTests: XCTestCase {
         let workspace: BackupWorkspace
         let books: [Book]
         init() throws {
-            workspace = try BackupWorkspace()
+            let working = try BackupWorkspace()
+            workspace = working
             var values: [Book] = []
             for index in 0..<20 {
                 try autoreleasepool {
@@ -15,7 +16,7 @@ final class BackupMemoryTests: XCTestCase {
                                 content: [String(repeating: "文", count: 128 * 1_024) + "书\(index)"])
                     }
                     let book = Book(id: "book-\(index)", title: "测量书籍\(index)", author: "测试样本", chapters: chapters)
-                    try JSONEncoder().encode(chapters).write(to: workspace.bodyURL(index), options: .atomic)
+                    try JSONEncoder().encode(chapters).write(to: working.bodyURL(index), options: .atomic)
                     values.append(book.metadata)
                 }
             }

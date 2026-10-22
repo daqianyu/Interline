@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class BackupContainerTests: XCTestCase {
-    private struct Fixture {
+    @MainActor private struct Fixture {
         let name = "BackupContainer-" + UUID().uuidString
         let defaults: UserDefaults
         let storage: ReadingStorage
