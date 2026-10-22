@@ -11,6 +11,7 @@ struct NoteEditorView: View {
     @State private var committing = false
 
     private var saveState: DraftSaveState? { appState.draftSaveState(for: draft.id) }
+    private var interactionBlocked: Bool { committing || appState.isMaintenanceBusy || appState.isImporting }
     private var visibleError: String? {
         errorMessage ?? (saveState == .failed ? "草稿尚未保存，输入仍在此页。请重试，暂勿关闭应用。" : nil)
     }
@@ -27,7 +28,7 @@ struct NoteEditorView: View {
                 Section("笔记") {
                     TextEditor(text: $note).frame(minHeight: 160).accessibilityLabel("笔记内容")
                         .accessibilityIdentifier("noteEditor")
-                        .disabled(committing)
+                        .disabled(interactionBlocked)
                 }
                 Section {
                     Text("输入会合并保存为草稿。显示“已保存”后可在数据与存储中继续编辑；保存完成前强制退出可能丢失最新输入。")
@@ -42,7 +43,7 @@ struct NoteEditorView: View {
                         if saveState == .saving { ProgressView().accessibilityHidden(true) }
                         if saveState == .failed {
                             Button("重试保存草稿") { Task { await retryDraft() } }
-                                .frame(minHeight: 44).disabled(committing).accessibilityIdentifier("retryDraftSave")
+                                .frame(minHeight: 44).disabled(interactionBlocked).accessibilityIdentifier("retryDraftSave")
                         }
                     }
                     if let visibleError {
@@ -53,16 +54,16 @@ struct NoteEditorView: View {
             .navigationTitle(draft.annotationID == nil ? "写笔记" : "编辑笔记")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { Task { await cancel() } }.disabled(committing)
+                    Button("取消") { Task { await cancel() } }.disabled(interactionBlocked)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(committing ? "保存中" : "保存") { Task { await save() } }
-                        .disabled(committing).accessibilityIdentifier("saveNote")
+                        .disabled(interactionBlocked).accessibilityIdentifier("saveNote")
                 }
             }
             .onChange(of: note) { _, _ in if !saved { _ = queueDraft() } }
             .onDisappear { if !saved { Task { await appState.flushDrafts() } } }
-            .interactiveDismissDisabled(committing || visibleError != nil || saveState == .saving)
+            .interactiveDismissDisabled(interactionBlocked || visibleError != nil || saveState == .saving)
         }
     }
 
