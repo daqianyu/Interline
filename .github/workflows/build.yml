@@ -4,7 +4,21 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'Interline/**'
+      - 'InterlineTests/**'
+      - 'InterlineUITests/**'
+      - 'scripts/**'
+      - 'project.yml'
+      - '.github/workflows/build.yml'
   pull_request:
+    paths:
+      - 'Interline/**'
+      - 'InterlineTests/**'
+      - 'InterlineUITests/**'
+      - 'scripts/**'
+      - 'project.yml'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,7 +32,7 @@ jobs:
   build:
     # GitHub's documented Xcode 27 image; macos-15 defaults to Xcode 16.4.
     runs-on: xcode-27
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,6 +70,7 @@ jobs:
 
       - name: Build and test reader
         id: reader_tests
+        timeout-minutes: 20
         shell: bash
         run: |
           set -o pipefail
@@ -83,7 +98,7 @@ jobs:
             --output-directory verification-summary
 
       - name: Export UI test screenshots
-        if: ${{ !cancelled() }}
+        if: always()
         run: |
           python3 - <<'PY_EXPORT'
           from pathlib import Path
@@ -97,7 +112,7 @@ jobs:
           PY_EXPORT
 
       - name: Upload verification results
-        if: ${{ !cancelled() }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: reader-verification

@@ -1,0 +1,87 @@
+name: Backup Memory Measurements
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Interline/**'
+      - 'InterlinePerformanceTests/**'
+      - 'project.yml'
+      - '.github/workflows/backup-memory.yml'
+  pull_request:
+    paths:
+      - 'Interline/**'
+      - 'InterlinePerformanceTests/**'
+      - 'project.yml'
+      - '.github/workflows/backup-memory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-memory-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate project and select simulator
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+          xcodegen generate
+          python3 - <<'PY'
+          import json, os, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '--json']))['devices']
+          candidates = [d for runtime, ds in devices.items() if 'iOS-27' in runtime for d in ds if d['name'].startswith('iPhone') and d.get('isAvailable')]
+          if not candidates:
+              raise SystemExit('No iOS 27 iPhone simulator')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('BACKUP_SIMULATOR_ID=' + candidates[0]['udid'] + '\n')
+          PY
+      - name: Build measurement target
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing -project Interline.xcodeproj -scheme InterlineBackupPerformance \
+            -destination "platform=iOS Simulator,id=$BACKUP_SIMULATOR_ID" -derivedDataPath MemoryDerived \
+            CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 | tee memory-build.log
+      - name: Measure each implementation in a fresh test process
+        run: |
+          set -o pipefail
+          for method in testLegacyFullLibrary testIncrementalV1 testFileV2; do
+            xcodebuild test-without-building -project Interline.xcodeproj -scheme InterlineBackupPerformance \
+              -destination "platform=iOS Simulator,id=$BACKUP_SIMULATOR_ID" -derivedDataPath MemoryDerived \
+              -parallel-testing-enabled NO \
+              -only-testing:"InterlinePerformanceTests/BackupMemoryTests/$method" \
+              -resultBundlePath "Memory-$method.xcresult" \
+              CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 | tee "memory-$method.log"
+          done
+      - name: Summarize recorded metrics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          lines = ['# Backup memory measurements', '', 'Synthetic 20-book sample; three measured iterations per variant; separate test processes.', '', 'Simulator measurements are not physical-device acceptance.', '']
+          for path in sorted(Path('.').glob('memory-test*.log')):
+              lines += ['## ' + path.stem, '']
+              lines += [line for line in path.read_text(errors='replace').splitlines() if 'measured [' in line or 'BACKUP_BENCHMARK' in line or 'Executed 1 test' in line]
+              lines += ['']
+          text = '\n'.join(lines)
+          Path('backup-memory-summary.md').write_text(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(text)
+          PY
+      - name: Preserve measurement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-memory-measurements
+          path: |
+            memory-*.log
+            Memory-*.xcresult
+            backup-memory-summary.md

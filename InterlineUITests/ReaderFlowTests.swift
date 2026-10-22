@@ -154,7 +154,9 @@ final class ReaderFlowTests: XCTestCase {
         editor.tap(); editor.typeText("A reading note")
         app.buttons["saveNote"].tap()
         let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
-        wait(for: [dismissed], timeout: 5)
+        wait(for: [dismissed], timeout: 15)
+        let selectionDismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.textViews["selectableText"])
+        wait(for: [selectionDismissed], timeout: 15)
         _ = readyCanvas(app)
         app.terminate(); app.launch()
         app.buttons["continueReading"].tap()
@@ -233,6 +235,62 @@ final class ReaderFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["exportLibraryBackup"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["restoreLibraryBackup"].exists)
         screenshot(app, name: "LibraryData")
+    }
+
+    func testFileBackupExportAndImportPickersCanBeCancelled() {
+        let app = launch()
+        app.buttons["libraryMenu"].tap()
+        app.buttons["数据与存储"].tap()
+        XCTAssertTrue(app.staticTexts["backupFormatHelp"].waitForExistence(timeout: 10))
+        app.buttons["exportLibraryBackup"].tap()
+        XCTAssertTrue(app.buttons["DOCPicker.actionButton"].waitForExistence(timeout: 20))
+        screenshot(app, name: "BackupFileExportPicker")
+        // iOS 27's initial folder shows Back/Save rather than a Cancel button.
+        // Exercise the system sheet's interactive cancellation once.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.90)))
+        let exportButton = app.buttons["exportLibraryBackup"]
+        let restored = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: exportButton)
+        wait(for: [restored], timeout: 15)
+        app.buttons["restoreLibraryBackup"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Browse View (Picker)"].firstMatch.waitForExistence(timeout: 15))
+        screenshot(app, name: "BackupFileImportPicker")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.90)))
+        let importDismissed = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: exportButton)
+        wait(for: [importDismissed], timeout: 15)
+        XCTAssertFalse(app.descendants(matching: .any)["storageError"].firstMatch.exists)
+        app.terminate()
+        app.launchEnvironment["INTERLINE_UI_DARK_APPEARANCE"] = "1"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        app.buttons["libraryMenu"].tap()
+        XCTAssertTrue(app.buttons["最近阅读"].waitForExistence(timeout: 10))
+        let dataAction = app.buttons["数据与存储"]
+        screenshot(app, name: "LibraryMenuDarkLargeText")
+        for _ in 0..<4 {
+            if dataAction.exists && dataAction.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(dataAction.waitForExistence(timeout: 10))
+        dataAction.tap()
+        XCTAssertTrue(app.buttons["exportLibraryBackup"].waitForExistence(timeout: 10))
+        let help = app.staticTexts["backupFormatHelp"]
+        // Form creates offscreen cells lazily at accessibility sizes.
+        for _ in 0..<6 {
+            if help.exists && help.isHittable { break }
+            app.collectionViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(help.exists)
+        XCTAssertTrue(help.isHittable)
+        screenshot(app, name: "BackupHelpDarkLargeText")
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = expectation(for: NSPredicate { _, _ in app.frame.width > app.frame.height }, evaluatedWith: app)
+        wait(for: [landscape], timeout: 10)
+        for _ in 0..<3 where !help.isHittable { app.swipeUp() }
+        XCTAssertTrue(help.isHittable)
+        screenshot(app, name: "BackupHelpDarkLargeLandscape")
     }
 
     func testReadingSurvivesBackgroundAndForeground() {

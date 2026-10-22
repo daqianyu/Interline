@@ -56,5 +56,11 @@ public struct RecoveryFile: Identifiable, Sendable {
 
 public enum LibraryBackupError: LocalizedError {
     case tooLarge
-    public var errorDescription: String? { "完整备份超过 256 MB，请先分别导出书籍正文与笔记" }
+    case metadataTooLarge
+    public var errorDescription: String? {
+        switch self {
+        case .tooLarge: "完整备份超过 256 MB，请先分别导出书籍正文与笔记"
+        case .metadataTooLarge: "书库目录或笔记超过处理上限（32 MB），请先分别导出书籍正文与笔记"
+        }
+    }
 }
