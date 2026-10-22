@@ -31,10 +31,11 @@ final class ReaderFlowTests: XCTestCase {
         element.tap()
     }
 
-    private func launch(failNoteSave: Bool = false, failDraftSave: Bool = false) -> XCUIApplication {
+    private func launch(failNoteSave: Bool = false, failDraftSave: Bool = false, blockCatalog: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["INTERLINE_UI_TESTING"] = "1"
         app.launchEnvironment["INTERLINE_UI_TEST_SUITE"] = UUID().uuidString
+        if blockCatalog { app.launchEnvironment["INTERLINE_UI_BLOCK_CATALOG"] = "1" }
         if failNoteSave { app.launchEnvironment["INTERLINE_UI_FAIL_NOTE_SAVE"] = "1" }
         if failDraftSave { app.launchEnvironment["INTERLINE_UI_FAIL_DRAFT_SAVE"] = "1" }
         app.launch()
@@ -344,6 +345,56 @@ final class ReaderFlowTests: XCTestCase {
         for _ in 0..<3 where !help.isHittable { app.swipeUp() }
         XCTAssertTrue(help.isHittable)
         screenshot(app, name: "BackupHelpDarkLargeLandscape")
+    }
+
+    func testDetailMetadataFailureRetainsInputAndRetry() {
+        let app = launch(blockCatalog: true)
+        let details = app.buttons["星河织梦录的书籍详情"]
+        XCTAssertTrue(details.waitForExistence(timeout: 10))
+        details.tap()
+        let title = app.textFields["detailTitle"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        title.tap()
+        let old = title.value as? String ?? ""
+        title.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + "未保存的新书名")
+        let save = app.buttons["saveBookMetadata"]
+        for _ in 0..<5 {
+            if save.exists && save.isHittable { break }
+            app.swipeUp()
+        }
+        save.tap()
+        XCTAssertTrue(app.staticTexts["pageOperationError"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["书籍详情"].exists)
+        screenshot(app, name: "DetailMetadataFailure")
+        app.buttons["retryPageOperation"].tap()
+        XCTAssertTrue(app.staticTexts["pageOperationError"].exists)
+        app.buttons["dismissPageOperationError"].tap()
+        for _ in 0..<5 {
+            if title.exists && title.isHittable { break }
+            app.swipeDown()
+        }
+        XCTAssertEqual(title.value as? String, "未保存的新书名")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["星河织梦录的书籍详情"].waitForExistence(timeout: 10))
+    }
+
+    func testDetailRemovalFailureKeepsPageAndBook() {
+        let app = launch(blockCatalog: true)
+        let details = app.buttons["星河织梦录的书籍详情"]
+        XCTAssertTrue(details.waitForExistence(timeout: 10))
+        details.tap()
+        let remove = app.buttons["removeBookFromDetail"]
+        for _ in 0..<10 {
+            if remove.exists && remove.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(remove.exists)
+        remove.tap()
+        XCTAssertTrue(app.staticTexts["pageOperationError"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["书籍详情"].exists)
+        screenshot(app, name: "DetailRemovalFailure")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["星河织梦录的书籍详情"].waitForExistence(timeout: 10))
     }
 
     func testReadingSurvivesBackgroundAndForeground() {

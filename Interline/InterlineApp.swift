@@ -21,6 +21,15 @@ struct InterlineApp: App {
                 try? FileManager.default.createDirectory(at: directory.appendingPathComponent("drafts-v1.json"), withIntermediateDirectories: true)
             }
             let state = AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true)
+            if ProcessInfo.processInfo.environment["INTERLINE_UI_BLOCK_CATALOG"] == "1" {
+                // Keep the valid bytes; only the isolated UI test library gets
+                // a real filesystem obstacle after it has loaded its catalog.
+                let original = directory.appendingPathComponent("catalog-ui-original.json")
+                if !FileManager.default.fileExists(atPath: original.path) {
+                    try? FileManager.default.moveItem(at: state.storage.catalogURL, to: original)
+                    try? FileManager.default.createDirectory(at: state.storage.catalogURL, withIntermediateDirectories: false)
+                }
+            }
             if ProcessInfo.processInfo.environment["INTERLINE_UI_DELAY_CONTENTS"] == "1" {
                 state.contentsLoader = BookContentsLoader(beforeRead: { try? await Task.sleep(for: .seconds(30)) })
             }
