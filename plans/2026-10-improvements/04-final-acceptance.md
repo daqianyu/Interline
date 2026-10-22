@@ -23,7 +23,7 @@
 | D02 真实回滚提示 | VERIFIED（约定的自动回归） | HardeningPlanTests 后 2 项覆盖 T-D02-01–03；无效备份用例覆盖 T-D02-04；完整回归通过 |
 | Q02 无障碍检查矩阵 | 矩阵子步骤完成，整体未验收 | 14 个逐页 AX 用例、6 组环境；源码缺口登记，真人辅助导航尚未测试 |
 | Q04 失败分类与证据 | VERIFIED | 12 项工具测试及 workflow 集成通过；下载产物确认 summary.json 为 success，SHA/运行链接正确；原失败记录保留 |
-| D03 草稿后台保存 | 已实现，待 iOS 编译与回归 | 8 项 DraftPersistenceTests、2 项新增 UI 用例；未宣称已通过 |
+| D03 草稿后台保存 | VERIFIED（功能自动回归） | 8 项 DraftPersistenceTests、2 项新增 UI 用例通过；全量 90 单元、11 UI、12 工具测试通过；恢复/失败截图已检查 |
 | D04–D06、Q01、Q03 | 未验收 | 依路线逐项实施；真机用例单独保留 |
 | P01–P04、U01–U08、A01–A03 | 未验收 | 代码与界面改进、视觉/功能回归 |
 | F01–F09、U09、P05 | 未验收 | 扩展设计细化、开发、兼容和发行验证 |
@@ -54,6 +54,27 @@ D01 的保全文件可以手动导出，不代表原损坏内容已自动修复�
 summary.json 的分类、SHA 与运行链接正确。Q04 完成集成验收。
 [设备归档 39708761112](https://github.com/daqianyu/Interline/actions/runs/39708761112)
 成功；仍为无签名产物，不代表可直接安装或真机已测试。上述结果不覆盖后续 D03 代码。
+
+### D03 交付证据
+
+- [PR #7](https://github.com/daqianyu/Interline/pull/7)，应用/测试代码
+  `0462e03ef0ff49305bc4b0ad11c09654b1653c21`。
+- [CI 39710154884](https://github.com/daqianyu/Interline/actions/runs/39710154884)，
+  job 119600367064：Xcode 27.0 构建成功，**90 单元、11 UI、12 工具测试全部通过**。
+  PR 测试使用合并引用 `091cb018e9d8e1a90e9b119acb86bc824f97102e`；摘要中的 SHA
+  为该引用，不与 PR 源分支 SHA 混淆。
+- 新增 8 项 DraftPersistenceTests 覆盖合并、后台线程、并发版本、写入互斥、
+  失败重试、提交后清理、备份刷新、损坏字节保护及独立草稿；真实临时文件验证通过。
+- 新增 UI `testCancelledDraftSurvivesRelaunchAndCanBeResumed` 与
+  `testFailedDraftSaveShowsRetryAndCancelKeepsInput` 均通过；原有 9 UI 用例保留并通过。
+- 下载产物 12397736608，summary.json 为 success；检查 iPhone 18 Pro 模拟器截图
+  `ResumedDraft`（E36FE58E…png）：原摘录和 Retained draft 仍在，状态已保存；
+  `DraftSaveFailure`（30DF571D…png）：键盘出现时错误/重试仍可见，原输入未丢失。
+- 视觉范围仅上述浅色竖屏；顶部导航留白偏大、失败态摘录分组标题贴近状态区，
+  作为 U07 布局复验记录，不声称全尺寸/深色/最大字号已验收。
+- 后续交付提交只更新计划文档，应用和 iOS 测试代码与上述通过版本一致。
+  系统立即强杀、真机后台时限、VoiceOver 仍未验证；D05 的目标章节同步读取仍待优化。
+  下一项 D04；整个发行计划仍未最终验收。
 
 需求 ID、实际范围、受影响文件、测试名称、源代码提交/PR、CI 运行链接、
 测试数量与结果、截图（如适用）、未验证条件和下一步。后续文档提交可引用此前
