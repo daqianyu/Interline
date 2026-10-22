@@ -28,69 +28,69 @@ struct BookDetailView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let book {
-                    Form {
-                        Section {
-                            HStack(spacing: 20) {
-                                BookCoverView(book: book, width: 72, height: 100).accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(book.title).font(.title3.bold())
-                                    Text(book.author).foregroundStyle(.secondary)
-                                    Text(String(format: "阅读进度 %.1f%%", book.progressPercentage)).font(.callout)
-                                }
-                            }.padding(.vertical, 8)
-                            Button("继续阅读") { dismiss(); appState.openBook(book) }.disabled(book.contentsUnavailable == true)
-                        }
-                        Section("编辑信息") {
-                            TextField("书名", text: $title).accessibilityIdentifier("detailTitle")
-                            TextField("作者", text: $author)
-                            Button("保存信息") { perform(.metadata) }
-                                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                .accessibilityIdentifier("saveBookMetadata")
-                        }
-                        Section("内容") {
-                            LabeledContent("章节", value: "\(book.summaries.count)")
-                            if loadedBook == nil && loadError == nil { ProgressView("正在加载正文") }
-                            if let loadError {
-                                Text(loadError).foregroundStyle(.red)
-                                Button("重试读取正文") { self.loadError = nil; loadGeneration = UUID() }
-                                BookImportButton()
-                            }
-                            LabeledContent("正文字符", value: "\(book.totalCharacters)")
-                            if let encoding = book.sourceEncoding { LabeledContent("导入编码", value: encoding) }
-                            Button("搜索本书正文") { showingSearch = true }.disabled(book.chapters.isEmpty)
-                            Button("导出 TXT 正文") { prepareExport() }
-                                .disabled(book.chapters.isEmpty || preparingExport)
-                                .accessibilityIdentifier("exportBookText")
-                            if preparingExport { ProgressView("正在准备正文") }
-                        }
-                        Section("目录") {
-                            ForEach(book.chapters) { chapter in
-                                Button(chapter.title) {
-                                    dismiss()
-                                    appState.jumpToLocation(bookID: book.id, location: ReadingLocation(chapterID: chapter.id, utf16Offset: 0))
-                                }
-                            }
-                        }
-                        Section {
-                            Button("从书架移出", role: .destructive) { perform(.removal) }.accessibilityIdentifier("removeBookFromDetail")
-                            Button("永久删除正文与阅读记录", role: .destructive) { showingDelete = true }
-                        } footer: { Text("移出可撤销并保留阅读记录；永久删除会一并清除正文、书签和笔记。") }
-                    }
-                    .onAppear {
-                        if !initialized { title = book.title; author = book.author; initialized = true }
-                    }
-                    .sheet(isPresented: $showingSearch) { BookSearchView(book: book) }
-                } else {
-                    ContentUnavailableView("书籍已移出", systemImage: "book.closed", description: Text("若数据清理未完成，可在此重试或到数据与存储继续处理。"))
-                }
-            }
-            .disabled(appState.isMaintenanceBusy || appState.isImporting)
-            .safeAreaInset(edge: .top) {
+            VStack(spacing: 0) {
                 if let errorMessage {
                     OperationErrorBanner(message: errorMessage, retry: { if let failedAction { perform(failedAction) } }, close: { self.errorMessage = nil; failedAction = nil })
                 }
+                Group {
+                    if let book {
+                        Form {
+                            Section {
+                                HStack(spacing: 20) {
+                                    BookCoverView(book: book, width: 72, height: 100).accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text(book.title).font(.title3.bold())
+                                        Text(book.author).foregroundStyle(.secondary)
+                                        Text(String(format: "阅读进度 %.1f%%", book.progressPercentage)).font(.callout)
+                                    }
+                                }.padding(.vertical, 8)
+                                Button("继续阅读") { dismiss(); appState.openBook(book) }.disabled(book.contentsUnavailable == true)
+                            }
+                            Section("编辑信息") {
+                                TextField("书名", text: $title).accessibilityIdentifier("detailTitle")
+                                TextField("作者", text: $author)
+                                Button("保存信息") { perform(.metadata) }
+                                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    .accessibilityIdentifier("saveBookMetadata")
+                            }
+                            Section("内容") {
+                                LabeledContent("章节", value: "\(book.summaries.count)")
+                                if loadedBook == nil && loadError == nil { ProgressView("正在加载正文") }
+                                if let loadError {
+                                    Text(loadError).foregroundStyle(.red)
+                                    Button("重试读取正文") { self.loadError = nil; loadGeneration = UUID() }
+                                    BookImportButton()
+                                }
+                                LabeledContent("正文字符", value: "\(book.totalCharacters)")
+                                if let encoding = book.sourceEncoding { LabeledContent("导入编码", value: encoding) }
+                                Button("搜索本书正文") { showingSearch = true }.disabled(book.chapters.isEmpty)
+                                Button("导出 TXT 正文") { prepareExport() }
+                                    .disabled(book.chapters.isEmpty || preparingExport)
+                                    .accessibilityIdentifier("exportBookText")
+                                if preparingExport { ProgressView("正在准备正文") }
+                            }
+                            Section("目录") {
+                                ForEach(book.chapters) { chapter in
+                                    Button(chapter.title) {
+                                        dismiss()
+                                        appState.jumpToLocation(bookID: book.id, location: ReadingLocation(chapterID: chapter.id, utf16Offset: 0))
+                                    }
+                                }
+                            }
+                            Section {
+                                Button("从书架移出", role: .destructive) { perform(.removal) }.accessibilityIdentifier("removeBookFromDetail")
+                                Button("永久删除正文与阅读记录", role: .destructive) { showingDelete = true }
+                            } footer: { Text("移出可撤销并保留阅读记录；永久删除会一并清除正文、书签和笔记。") }
+                        }
+                        .onAppear {
+                            if !initialized { title = book.title; author = book.author; initialized = true }
+                        }
+                        .sheet(isPresented: $showingSearch) { BookSearchView(book: book) }
+                    } else {
+                        ContentUnavailableView("书籍已移出", systemImage: "book.closed", description: Text("若数据清理未完成，可在此重试或到数据与存储继续处理。"))
+                    }
+                }
+                .disabled(appState.isMaintenanceBusy || appState.isImporting)
             }
             .navigationTitle("书籍详情").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }

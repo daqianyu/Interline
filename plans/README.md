@@ -16,8 +16,8 @@
 7. [无障碍检查矩阵](2026-10-improvements/06-accessibility-matrix.md)：Q02 分页面用例、证据和后续修复归属。
 8. [备份 v2 格式设计](2026-10-improvements/07-backup-v2-format.md)：D04 文件结构、临时文件生命周期和兼容验收。
 9. [D04 内存实测](2026-10-improvements/08-d04-memory-results.md)：固定样本、原始测量与交付版本结果。
-
 10. [真实文件流程验收](2026-10-improvements/09-file-provider-acceptance.md)：Q01 提供器矩阵、实际闭环与外部条件。
+11. [性能基线清单](2026-10-improvements/10-performance-baseline.md)：Q03 已有备份数据、待测启动/阅读/输入和真机长读范围。
 
 ## 状态规则
 

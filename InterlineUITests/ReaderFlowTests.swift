@@ -403,12 +403,16 @@ final class ReaderFlowTests: XCTestCase {
         screenshot(app, name: "DetailRemovalFailureDarkLarge")
         XCTAssertTrue(app.buttons["retryPageOperation"].isHittable)
         XCTAssertTrue(app.buttons["dismissPageOperationError"].isHittable)
+        app.buttons["retryPageOperation"].tap()
+        XCTAssertTrue(app.staticTexts["pageOperationError"].exists)
         XCUIDevice.shared.orientation = .landscapeLeft
         let rotated = expectation(for: NSPredicate { _, _ in app.frame.width > app.frame.height }, evaluatedWith: app)
         wait(for: [rotated], timeout: 10)
         XCTAssertTrue(app.buttons["retryPageOperation"].isHittable)
         XCTAssertTrue(app.buttons["dismissPageOperationError"].isHittable)
         screenshot(app, name: "DetailRemovalFailureDarkLargeLandscape")
+        app.buttons["dismissPageOperationError"].tap()
+        XCTAssertFalse(app.staticTexts["pageOperationError"].exists)
         XCUIDevice.shared.orientation = .portrait
         app.buttons["完成"].tap()
         XCTAssertTrue(app.buttons["星河织梦录的书籍详情"].waitForExistence(timeout: 10))
