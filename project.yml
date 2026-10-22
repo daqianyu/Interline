@@ -12,6 +12,15 @@ targets:
   Interline:
     type: application
     platform: iOS
+    info:
+      path: Interline/Info.plist
+      properties:
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.interline.backup
+            UTTypeDescription: Interline Library Backup
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [interlinebackup]
     sources:
       - Interline
     settings:
@@ -31,6 +40,13 @@ targets:
       - InterlineUITests
     dependencies:
       - target: Interline
+  InterlinePerformanceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - InterlinePerformanceTests
+    dependencies:
+      - target: Interline
 schemes:
   Interline:
     build:
@@ -42,3 +58,11 @@ schemes:
       targets:
         - InterlineTests
         - InterlineUITests
+  InterlineBackupPerformance:
+    build:
+      targets:
+        Interline: all
+        InterlinePerformanceTests: [test]
+    test:
+      targets:
+        - InterlinePerformanceTests

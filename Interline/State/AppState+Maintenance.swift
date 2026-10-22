@@ -63,14 +63,37 @@ extension AppState {
             bookmarks: bookmarks, annotations: annotations, drafts: drafts)
     }
 
+    public func exportLibraryBackupFile() async throws -> BackupExport {
+        guard !isMaintenanceBusy, !isImporting else { throw CocoaError(.fileWriteUnknown) }
+        isMaintenanceBusy = true
+        defer { isMaintenanceBusy = false }
+        guard await flushDrafts() else { throw CocoaError(.fileWriteUnknown) }
+        let active = books, removed = maintenance.removedBooks, settings = preferences
+        let marks = bookmarks, notes = annotations, savedDrafts = drafts, store = storage
+        return try await BackupWorker.run {
+            try BackupContainer.export(books: active, removedBooks: removed, preferences: settings,
+                bookmarks: marks, annotations: notes, drafts: savedDrafts,
+                contentsURL: { store.contentsURL(bookID: $0) })
+        }
+    }
+
     @discardableResult public func restoreLibraryBackup(_ data: Data) async -> Bool {
+        await restoreLibraryBackup(preparing: { try BackupContainer.prepareLegacy(data) })
+    }
+
+    @discardableResult public func restoreLibraryBackup(_ prepared: PreparedLibraryBackup) async -> Bool {
+        await restoreLibraryBackup(preparing: { prepared })
+    }
+
+    private func restoreLibraryBackup(preparing: @escaping @Sendable () throws -> PreparedLibraryBackup) async -> Bool {
         guard !isMaintenanceBusy, !isImporting else { return false }
         isMaintenanceBusy = true
         defer { isMaintenanceBusy = false }
         guard await flushDrafts() else { showFailure("草稿尚未保存，恢复未开始，请先重试保存草稿"); return false }
         closeReader()
         do {
-            var backup = try await Task.detached(priority: .userInitiated) { try ReadingStorage.decodeBackup(data) }.value
+            let prepared = try await BackupWorker.run(preparing)
+            var backup = prepared.metadata
             func available(_ value: Book) -> Book { var book = value; book.contentsUnavailable = false; return book }
             backup.books = backup.books.map(available)
             backup.removedBooks = backup.removedBooks.map(available)
@@ -104,15 +127,21 @@ extension AppState {
             let savedDrafts = merged(drafts, backup.drafts, id: { $0.id })
             let store = storage
             let collisions = (backup.books + backup.removedBooks).filter { existingIDs.contains($0.id) && !repairedIDs.contains($0.id) }
-            try await Task.detached(priority: .userInitiated) {
+            try await BackupWorker.run {
                 for book in collisions {
-                    guard try store.readContents(bookID: book.id) == book.chapters else { throw CocoaError(.fileReadCorruptFile) }
+                    try autoreleasepool {
+                        guard try store.readContents(bookID: book.id) == prepared.readBook(book).chapters else { throw CocoaError(.fileReadCorruptFile) }
+                    }
                 }
-            }.value
+            }
             try storage.beginTransaction()
-            try await Task.detached(priority: .userInitiated) {
-                for book in incoming + absent { try Task.checkCancellation(); try store.stageContents(of: book) }
-            }.value
+            try await BackupWorker.run {
+                for book in incoming + absent {
+                    try Task.checkCancellation()
+                    try autoreleasepool { try store.stageContents(of: prepared.readBook(book)) }
+                }
+            }
+            try Task.checkCancellation()
             guard storage.saveAnnotations(notes), storage.saveBookmarks(marks), storage.saveDrafts(savedDrafts), storage.saveMaintenance(nextMaintenance) else { throw CocoaError(.fileWriteUnknown) }
             if existing.isEmpty, !storage.savePreferences(backup.preferences) { throw CocoaError(.fileWriteUnknown) }
             for book in incoming where !storage.saveRecord(for: book) { throw CocoaError(.fileWriteUnknown) }

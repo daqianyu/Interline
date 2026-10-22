@@ -1,28 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct BackupDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
-    var data: Data
-    init(data: Data) { self.data = data }
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents, data.count <= ReadingStorage.maximumBackupBytes else { throw CocoaError(.fileReadCorruptFile) }
-        self.data = data
-    }
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
-}
-
 struct LibraryDataView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
-    @State private var exporting = false
     @State private var importing = false
-    @State private var document = BackupDocument(data: Data())
+    @State private var backupExport: BackupExport?
     @State private var errorMessage: String?
     @State private var recovery: [RecoveryFile] = []
     @State private var editingDraft: NoteDraft?
     @State private var deletingBook: Book?
-    @State private var restoreData: Data?
+    @State private var preparedBackup: PreparedLibraryBackup?
     @State private var confirmingRestore = false
     @State private var readingBackup = false
 
@@ -33,7 +21,7 @@ struct LibraryDataView: View {
                 Section("备份与恢复") {
                     Button("导出完整备份", systemImage: "square.and.arrow.up") {
                         Task {
-                            do { document = BackupDocument(data: try await appState.exportLibraryBackup()); exporting = true }
+                            do { backupExport = try await appState.exportLibraryBackupFile() }
                             catch { errorMessage = "备份未完成：\(error.localizedDescription)" }
                         }
                     }.accessibilityIdentifier("exportLibraryBackup")
@@ -41,6 +29,8 @@ struct LibraryDataView: View {
                         .accessibilityIdentifier("restoreLibraryBackup")
                     Text("备份包含正文、阅读位置、书签、笔记、草稿及设置。恢复会合并资料；已有书籍保留当前记录，空书库恢复备份设置。备份未加密，包含私人笔记，请妥善保存。")
                         .font(.caption).foregroundStyle(.secondary)
+                    Text("新备份使用 .interlinebackup 文件，需新版 Interline 恢复；仍可导入旧 JSON 备份。保留的损坏原始文件请从下方单独导出。")
+                        .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("backupFormatHelp")
                 }
                 Section("正文修复") {
                     BookImportButton()
@@ -109,27 +99,28 @@ struct LibraryDataView: View {
             .interactiveDismissDisabled(appState.isMaintenanceBusy || readingBackup)
             .onAppear { recovery = appState.recoveryFiles() }
             .sheet(item: $editingDraft) { draft in NoteEditorView(draft: draft) }
+            .sheet(item: $backupExport) { backup in
+                BackupFileExporter(backup: backup) { backupExport = nil }
+            }
             .confirmationDialog("永久删除《\(deletingBook?.title ?? "")》及其笔记？", isPresented: Binding(get: { deletingBook != nil }, set: { if !$0 { deletingBook = nil } }), titleVisibility: .visible) {
                 Button("永久删除", role: .destructive) { if let book = deletingBook { appState.permanentlyDeleteBook(id: book.id) }; deletingBook = nil }
             }
             .confirmationDialog("合并此备份中的资料？", isPresented: $confirmingRestore, titleVisibility: .visible) {
                 Button("合并恢复") {
-                    guard let data = restoreData else { return }
-                    Task { if !(await appState.restoreLibraryBackup(data)) { errorMessage = appState.toastMessage }; restoreData = nil; recovery = appState.recoveryFiles() }
+                    guard let backup = preparedBackup else { return }
+                    Task { if !(await appState.restoreLibraryBackup(backup)) { errorMessage = appState.toastMessage }; preparedBackup = nil; recovery = appState.recoveryFiles() }
                 }
-                Button("取消", role: .cancel) { restoreData = nil }
+                Button("取消", role: .cancel) { preparedBackup = nil }
             } message: { Text("已有书籍、笔记和阅读位置优先保留。请在恢复完成前保持应用打开。") }
-            .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "Interline-完整备份.json") { result in
-                if case .failure(let error) = result { errorMessage = error.localizedDescription }
-            }
-            .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+            .onChange(of: confirmingRestore) { _, presented in if !presented { preparedBackup = nil } }
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .interlineBackup]) { result in
                 switch result {
                 case .success(let url):
                     readingBackup = true
                     Task {
                         defer { readingBackup = false }
                         do {
-                            restoreData = try await Task.detached(priority: .userInitiated) { try ReadingStorage.readBackup(url: url) }.value
+                            preparedBackup = try await BackupWorker.run { try BackupContainer.prepare(url: url) }
                             confirmingRestore = true
                         } catch { errorMessage = "无法读取备份：\(error.localizedDescription)" }
                     }

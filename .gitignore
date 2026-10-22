@@ -5,4 +5,5 @@ build.log
 .DS_Store
 __pycache__/
 verification-summary/
+Interline/Info.plist
 

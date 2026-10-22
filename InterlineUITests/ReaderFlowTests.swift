@@ -235,6 +235,27 @@ final class ReaderFlowTests: XCTestCase {
         screenshot(app, name: "LibraryData")
     }
 
+    func testFileBackupExportAndImportPickersCanBeCancelled() {
+        let app = launch()
+        app.buttons["libraryMenu"].tap()
+        app.buttons["数据与存储"].tap()
+        XCTAssertTrue(app.staticTexts["backupFormatHelp"].waitForExistence(timeout: 10))
+        app.buttons["exportLibraryBackup"].tap()
+        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "取消"])).firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 20))
+        screenshot(app, name: "BackupFileExportPicker")
+        cancel.tap()
+        let exportButton = app.buttons["exportLibraryBackup"]
+        let restored = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: exportButton)
+        wait(for: [restored], timeout: 15)
+        app.buttons["restoreLibraryBackup"].tap()
+        XCTAssertTrue(cancel.waitForExistence(timeout: 15))
+        screenshot(app, name: "BackupFileImportPicker")
+        cancel.tap()
+        XCTAssertTrue(exportButton.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["storageError"].exists)
+    }
+
     func testReadingSurvivesBackgroundAndForeground() {
         let app = launch()
         app.buttons["continueReading"].tap()
