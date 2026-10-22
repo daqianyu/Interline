@@ -199,7 +199,10 @@ final class ReaderFlowTests: XCTestCase {
         wait(for: [saved], timeout: 15)
         app.buttons["取消"].tap()
         let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
-        wait(for: [dismissed], timeout: 10)
+        // A single AX snapshot took over six seconds in the recorded failure;
+        // leave room for a second observation after the dismissal completes.
+        wait(for: [dismissed], timeout: 20)
+        XCTAssertTrue(app.buttons["selectParagraph"].waitForExistence(timeout: 10))
         app.terminate(); app.launch()
         app.buttons["libraryMenu"].tap()
         app.buttons["数据与存储"].tap()
