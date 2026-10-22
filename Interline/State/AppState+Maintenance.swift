@@ -3,6 +3,7 @@ import Foundation
 extension AppState {
     @discardableResult public func restoreRemovedBook(id: String) -> Bool {
         guard !isMaintenanceBusy, !isImporting, let book = maintenance.removedBooks.first(where: { $0.id == id }) else { return false }
+        guard requireSettledDrafts() else { return false }
         var next = maintenance
         next.removedBooks.removeAll { $0.id == id }
         var restored = book
@@ -22,6 +23,7 @@ extension AppState {
 
     public func retryPendingDeletions() {
         guard !isMaintenanceBusy, !isImporting else { return }
+        guard requireSettledDrafts() else { return }
         var next = maintenance
         for task in maintenance.pendingDeletions {
             let notes = annotations.filter { $0.bookID != task.id }
@@ -40,6 +42,7 @@ extension AppState {
 
     public func recoveryFiles() -> [RecoveryFile] { storage.recoveryFiles() }
     public func retryInterruptedRestore() {
+        guard !isMaintenanceBusy, !isImporting, requireSettledDrafts() else { return }
         guard storage.recoverInterruptedRestore() else { showFailure(storage.lastError ?? "恢复失败"); return }
         reloadLibrary()
         showToast("数据恢复检查已完成")
@@ -47,6 +50,7 @@ extension AppState {
     private func reloadLibrary() {
         books = storage.loadBooks(includeContents: !loadsContentsOnDemand)
         maintenance = storage.loadMaintenance(); drafts = storage.loadDrafts()
+        draftSaveStates = [:]
         bookmarks = storage.loadBookmarks(); annotations = storage.loadAnnotations(); preferences = storage.loadPreferences()
     }
 
@@ -54,15 +58,17 @@ extension AppState {
         guard !isMaintenanceBusy, !isImporting else { throw CocoaError(.fileWriteUnknown) }
         isMaintenanceBusy = true
         defer { isMaintenanceBusy = false }
+        guard await flushDrafts() else { throw CocoaError(.fileWriteUnknown) }
         return try await storage.buildBackup(books: books, maintenance: maintenance, preferences: preferences,
             bookmarks: bookmarks, annotations: annotations, drafts: drafts)
     }
 
     @discardableResult public func restoreLibraryBackup(_ data: Data) async -> Bool {
         guard !isMaintenanceBusy, !isImporting else { return false }
-        closeReader()
         isMaintenanceBusy = true
         defer { isMaintenanceBusy = false }
+        guard await flushDrafts() else { showFailure("草稿尚未保存，恢复未开始，请先重试保存草稿"); return false }
+        closeReader()
         do {
             var backup = try await Task.detached(priority: .userInitiated) { try ReadingStorage.decodeBackup(data) }.value
             func available(_ value: Book) -> Book { var book = value; book.contentsUnavailable = false; return book }
@@ -129,22 +135,6 @@ extension AppState {
         if let chapter = books.first(where: { $0.id == bookID })?.chapters.first(where: { $0.id == chapterID }) { return chapter }
         return (try? storage.readContents(bookID: bookID))?.first { $0.id == chapterID }
     }
-    public func draft(for id: String) -> NoteDraft? { drafts.first { $0.id == id } }
-    @discardableResult public func saveDraft(_ draft: NoteDraft) -> Bool {
-        var next = drafts
-        next.removeAll { $0.id == draft.id }
-        if !draft.text.isEmpty { next.append(draft) }
-        guard storage.saveDrafts(next) else { showFailure(storage.lastError ?? "草稿保存失败，请保留编辑页"); return false }
-        drafts = next
-        return true
-    }
-    @discardableResult public func removeDraft(id: String) -> Bool {
-        let next = drafts.filter { $0.id != id }
-        guard storage.saveDrafts(next) else { showFailure(storage.lastError ?? "草稿清理失败"); return false }
-        drafts = next
-        return true
-    }
-
     public func details(for book: Book) async throws -> Book {
         if !book.chapters.isEmpty { return book }
         let store = storage

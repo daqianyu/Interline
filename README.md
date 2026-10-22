@@ -188,7 +188,11 @@ a durable cleanup task; partial cleanup can be retried without reimporting the b
 Original damaged files can be exported from the recovery section. Unreadable data
 is retained, but malformed files cannot be guaranteed to reconstruct automatically.
 
-Note editors retain draft input and stay open on save failure. Drafts can be resumed
+Note editors coalesce draft input for 300 ms, encode and atomically save it off the
+main actor, and show saving/saved/unsaved status with retry. Cancel, note submission,
+and backup/restore wait for pending drafts; destructive maintenance refuses unsaved
+input. App inactivity requests a flush, but forced termination before “saved” can
+still lose the latest unsaved characters. Drafts can be resumed
 from Data and storage. Selection has a one-tap paragraph action alongside native
 selection handles. Search briefly highlights the matching range; explicit chapter,
 bookmark, progress and search jumps can return through a bounded position history.

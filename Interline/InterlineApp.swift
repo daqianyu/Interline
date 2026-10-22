@@ -17,6 +17,9 @@ struct InterlineApp: App {
             if ProcessInfo.processInfo.environment["INTERLINE_UI_FAIL_NOTE_SAVE"] == "1" {
                 try? FileManager.default.createDirectory(at: directory.appendingPathComponent("annotations-v1.json"), withIntermediateDirectories: true)
             }
+            if ProcessInfo.processInfo.environment["INTERLINE_UI_FAIL_DRAFT_SAVE"] == "1" {
+                try? FileManager.default.createDirectory(at: directory.appendingPathComponent("drafts-v1.json"), withIntermediateDirectories: true)
+            }
             _appState = StateObject(wrappedValue: AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true))
             return
         }

@@ -3,6 +3,7 @@ import Foundation
 extension AppState {
     public func importBook(_ imported: Book) async -> Bool {
         guard !isMaintenanceBusy, !isImporting else { return false }
+        guard requireSettledDrafts() else { return false }
         guard storage.permitWrite() else { checkSave(false); return false }
         guard !maintenance.pendingDeletions.contains(where: { $0.id == imported.id }) else { showFailure("请先在数据与存储中完成此书的数据清理"); return false }
         let wasRemoved = maintenance.removedBooks.contains(where: { $0.id == imported.id })
@@ -50,6 +51,7 @@ extension AppState {
 
     public func permanentlyDeleteBook(id: String) {
         guard !isMaintenanceBusy, !isImporting else { return }
+        guard requireSettledDrafts() else { return }
         guard let book = books.first(where: { $0.id == id }) ?? maintenance.removedBooks.first(where: { $0.id == id }) else { return }
         var next = maintenance
         next.removedBooks.removeAll { $0.id == id }

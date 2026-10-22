@@ -25,6 +25,14 @@ public final class AppState: ObservableObject {
     public var toastMessage: String? { notice?.message }
     @Published public internal(set) var maintenance = LibraryMaintenanceState()
     @Published public internal(set) var drafts: [NoteDraft] = []
+    @Published public internal(set) var draftSaveStates: [String: DraftSaveState] = [:]
+    struct PendingDraft {
+        let value: NoteDraft
+        let revision = UUID()
+    }
+    var pendingDrafts: [String: PendingDraft] = [:]
+    var draftDebounceTask: Task<Void, Never>?
+    var draftSaveTask: Task<Bool, Never>?
     @Published public internal(set) var isMaintenanceBusy = false
     @Published public private(set) var isLoadingBook = false
     @Published public internal(set) var isImporting = false
@@ -447,6 +455,7 @@ public final class AppState: ObservableObject {
 
     public func deleteBook(id: String) {
         guard !isMaintenanceBusy, !isImporting else { return }
+        guard requireSettledDrafts() else { return }
         guard let index = books.firstIndex(where: { $0.id == id }) else { return }
         let book = books[index]
         var next = books
