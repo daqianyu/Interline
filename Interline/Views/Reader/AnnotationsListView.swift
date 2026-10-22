@@ -6,6 +6,8 @@ struct AnnotationsListView: View {
     @State private var editing: ReadingAnnotation?
     @State private var exporting = false
     @State private var document = PlainTextDocument(text: "")
+    @State private var errorMessage: String?
+    @State private var failedDeletion: String?
 
     private var notes: [ReadingAnnotation] { appState.annotations.filter { $0.bookID == bookID }.sorted { $0.createdAt > $1.createdAt } }
 
@@ -16,6 +18,7 @@ struct AnnotationsListView: View {
                 List {
                     Section {
                         Button("导出全部笔记", systemImage: "square.and.arrow.up") {
+                            errorMessage = nil; failedDeletion = nil
                             document = PlainTextDocument(text: appState.notesText(for: bookID))
                             exporting = true
                         }
@@ -33,15 +36,23 @@ struct AnnotationsListView: View {
                         }
                         .contextMenu {
                             Button("编辑笔记", systemImage: "pencil") { editing = annotation }
-                            Button("删除标注", systemImage: "trash", role: .destructive) { appState.removeAnnotation(id: annotation.id) }
+                            Button("删除标注", systemImage: "trash", role: .destructive) { remove(annotation.id) }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button("删除", role: .destructive) { appState.removeAnnotation(id: annotation.id) }
+                            Button("删除", role: .destructive) { remove(annotation.id) }
                             Button("编辑") { editing = annotation }.tint(.blue)
                         }
                         .accessibilityHint("轻点返回原文，也可使用操作编辑或删除笔记")
                     }
                 }
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let errorMessage {
+                OperationErrorBanner(message: errorMessage, retry: {
+                    if let failedDeletion { remove(failedDeletion) }
+                    else { self.errorMessage = nil; document = PlainTextDocument(text: appState.notesText(for: bookID)); exporting = true }
+                }, close: { self.errorMessage = nil; failedDeletion = nil })
             }
         }
         .sheet(item: $editing) { annotation in
@@ -50,7 +61,16 @@ struct AnnotationsListView: View {
             NoteEditorView(draft: appState.draft(for: value.id) ?? value)
         }
         .fileExporter(isPresented: $exporting, document: document, contentType: .plainText, defaultFilename: "阅读笔记.txt") { result in
-            if case .failure(let error) = result { appState.showToast(error.localizedDescription) }
+            switch result {
+            case .success: errorMessage = nil
+            case .failure(let error):
+                if let message = FileOperationFailure.message(for: error, operation: "笔记导出") { errorMessage = message; failedDeletion = nil }
+            }
         }
+    }
+
+    private func remove(_ id: String) {
+        errorMessage = appState.removeAnnotation(id: id).errorMessage
+        failedDeletion = errorMessage == nil ? nil : id
     }
 }

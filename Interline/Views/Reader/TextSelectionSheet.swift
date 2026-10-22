@@ -15,6 +15,7 @@ struct TextSelectionSheet: View {
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var editingDraft: NoteDraft?
     @State private var closeAfterNoteSaved = false
+    @State private var markError: String?
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,11 @@ struct TextSelectionSheet: View {
                 }
             }
             .toolbar { ToolbarItem(placement: .bottomBar) { Text(selection.length > 0 ? "已选 \(selectedQuote.count) 字" : "请选择文字").font(.caption) } }
+            .safeAreaInset(edge: .top) {
+                if let markError {
+                    OperationErrorBanner(message: markError, retry: { save() }, close: { self.markError = nil })
+                }
+            }
             .sheet(item: $editingDraft, onDismiss: {
                 // Finish the nested editor dismissal before dismissing its presenter.
                 // Concurrent dismissals can leave the selection sheet on screen.
@@ -74,8 +80,12 @@ struct TextSelectionSheet: View {
     private func save() {
         guard !selectedQuote.isEmpty else { return }
         let range = NSRange(location: page.range.location + selection.location, length: selection.length)
+        let previousNotice = appState.notice?.id
         if appState.addAnnotation(bookID: bookID, chapterID: chapterID, range: range) {
+            markError = nil
             dismiss()
+        } else {
+            markError = appState.notice?.id != previousNotice ? appState.toastMessage : "标注未保存，选区仍保留。请重试；若正文已变化，请重新选择。"
         }
     }
 }

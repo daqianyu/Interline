@@ -22,15 +22,16 @@ struct BookImportButton: View {
                 loading = true
                 Task {
                     do { source = try await Task.detached(priority: .userInitiated) { try TXTImportService.read(url: url) }.value }
-                    catch { errorMessage = error.localizedDescription }
+                    catch { errorMessage = FileOperationFailure.message(for: error, operation: "文件读取") }
                     loading = false
                 }
             case .failure(let error):
-                if (error as NSError).code != CocoaError.Code.userCancelled.rawValue { errorMessage = error.localizedDescription }
+                errorMessage = FileOperationFailure.message(for: error, operation: "文件选择")
             }
         }
         .sheet(item: $source) { source in ImportPreviewView(source: source) }
         .alert("导入失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("重新选择文件") { errorMessage = nil; showingPicker = true }
             Button("好") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
     }
@@ -47,6 +48,7 @@ struct ImportPreviewView: View {
     @State private var errorMessage: String?
     @State private var busy = false
     @State private var parsing = true
+    @State private var parseGeneration = UUID()
 
     private var duplicate: Book? {
         guard let parsed else { return nil }
@@ -62,7 +64,10 @@ struct ImportPreviewView: View {
                         ForEach(TextEncodingChoice.allCases) { value in Text(value.rawValue).tag(value) }
                     }
                     if parsing { ProgressView("识别正文与章节") }
-                    if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                    if let errorMessage {
+                        Text(errorMessage).foregroundStyle(.red)
+                        if parsed == nil && !parsing { Button("重试识别") { parseGeneration = UUID() } }
+                    }
                 }
                 if let parsed, !parsing {
                     Section("书籍信息") {
@@ -108,7 +113,7 @@ struct ImportPreviewView: View {
                 }
             }
             .interactiveDismissDisabled(busy)
-            .task(id: encoding) {
+            .task(id: encoding.rawValue + parseGeneration.uuidString) {
                 parsing = true
                 parsed = nil
                 errorMessage = nil

@@ -458,10 +458,10 @@ public final class AppState: ObservableObject {
         showToast(removing ? "已移除书签" : "已添加书签")
     }
 
-    public func deleteBook(id: String) {
-        guard !isMaintenanceBusy, !isImporting else { return }
-        guard requireSettledDrafts() else { return }
-        guard let index = books.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult public func deleteBook(id: String) -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting else { return actionFailure("资料正在处理，请稍后重试移出") }
+        guard requireSettledDrafts() else { return .failure("仍有未保存的草稿，请先保存或重试") }
+        guard let index = books.firstIndex(where: { $0.id == id }) else { return actionFailure("书籍已不存在") }
         let book = books[index]
         var next = books
         next.remove(at: index)
@@ -472,13 +472,17 @@ public final class AppState: ObservableObject {
             try storage.beginTransaction()
             guard storage.saveMaintenance(nextMaintenance), storage.saveBooks(next) else { throw CocoaError(.fileWriteUnknown) }
             try storage.commitTransaction()
-        } catch { _ = storage.recoverInterruptedRestore(); showFailure(storage.lastError ?? "移出失败，请重试"); return }
+        } catch {
+            let recovered = storage.recoverInterruptedRestore()
+            return actionFailure(recovered ? "移出未完成，请重试：" + (storage.lastError ?? "保存失败") : "移出与回滚尚未完成，请到数据与存储重试中断的数据恢复")
+        }
         deletedBookBackup = (book, index)
         maintenance = nextMaintenance
         books = next
         if activeBookId == id { closeReader(); activeBookId = nil }
         // Reading records and bookmarks are retained for undo; no content is purged.
         showToast("已从书架移出《\(book.title)》", action: .undoRemoval)
+        return .success
     }
 
     public func undoDelete() {

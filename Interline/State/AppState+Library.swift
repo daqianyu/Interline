@@ -38,34 +38,51 @@ extension AppState {
         } catch { showFailure("正文保存失败：\(error.localizedDescription)"); return false }
     }
 
-    public func updateBookMetadata(id: String, title: String, author: String) {
-        guard let index = books.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult public func updateBookMetadata(id: String, title: String, author: String) -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting else { return actionFailure("资料正在处理，请稍后重试保存信息") }
+        guard let index = books.firstIndex(where: { $0.id == id }) else { return actionFailure("书籍已不存在，信息未保存") }
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
+        guard !title.isEmpty else { return actionFailure("书名不能为空") }
         var next = books
         next[index].title = title
         next[index].author = author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未知作者" : author
-        if storage.saveBooks(next) { books = next; showToast("书籍信息已保存") }
-        else { checkSave(false) }
+        guard storage.saveBooks(next) else { return actionFailure(storage.lastError ?? "书籍信息保存失败，请重试") }
+        books = next
+        showToast("书籍信息已保存")
+        return .success
     }
 
-    public func permanentlyDeleteBook(id: String) {
-        guard !isMaintenanceBusy, !isImporting else { return }
-        guard requireSettledDrafts() else { return }
-        guard let book = books.first(where: { $0.id == id }) ?? maintenance.removedBooks.first(where: { $0.id == id }) else { return }
+    @discardableResult public func permanentlyDeleteBook(id: String) -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting else { return actionFailure("资料正在处理，请稍后重试删除") }
+        guard requireSettledDrafts() else { return .failure("仍有未保存的草稿，请先保存或重试") }
+        // A committed removal may still have pending file cleanup. Retry it
+        // without requiring the removed catalog entry to exist again.
+        if maintenance.pendingDeletions.contains(where: { $0.id == id }) {
+            _ = retryPendingDeletions()
+            return maintenance.pendingDeletions.contains(where: { $0.id == id })
+                ? .failure("书籍已移出，部分数据尚未清理，请重试") : .success
+        }
+        guard let book = books.first(where: { $0.id == id }) ?? maintenance.removedBooks.first(where: { $0.id == id }) else {
+            return actionFailure("书籍已不存在")
+        }
         var next = maintenance
         next.removedBooks.removeAll { $0.id == id }
-        if !next.pendingDeletions.contains(where: { $0.id == id }) { next.pendingDeletions.append(PendingDeletion(id: id, title: book.title, createdAt: Date())) }
+        next.pendingDeletions.append(PendingDeletion(id: id, title: book.title, createdAt: Date()))
         let active = books.filter { $0.id != id }
         do {
             try storage.beginTransaction()
             guard storage.saveMaintenance(next), storage.saveBooks(active) else { throw CocoaError(.fileWriteUnknown) }
             try storage.commitTransaction()
-        } catch { _ = storage.recoverInterruptedRestore(); showFailure(storage.lastError ?? "删除失败，请重试"); return }
+        } catch {
+            let recovered = storage.recoverInterruptedRestore()
+            return actionFailure(recovered ? "删除未完成，请重试：" + (storage.lastError ?? "保存失败") : "删除与回滚尚未完成，请到数据与存储重试中断的数据恢复")
+        }
         maintenance = next; books = active; deletedBookBackup = nil
         if activeBookId == id { closeReader(); activeBookId = nil }
         pageCache.remove { $0.bookID == id }
-        retryPendingDeletions()
+        _ = retryPendingDeletions()
+        return maintenance.pendingDeletions.contains(where: { $0.id == id })
+            ? .failure("书籍已移出，部分数据尚未清理，请重试") : .success
     }
 
     public func jumpToLocation(bookID: String, location: ReadingLocation, highlight: NSRange? = nil, remember: Bool = true) {
