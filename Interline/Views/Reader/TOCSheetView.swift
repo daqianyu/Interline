@@ -5,6 +5,8 @@ public struct TOCSheetView: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedTab = 0
     @State private var filter = ""
+    @State private var bookmarkError: String?
+    @State private var failedBookmark: String?
     public init(book: Book) { self.book = book }
     private var current: Book { appState.activeBook ?? book }
 
@@ -49,14 +51,24 @@ public struct TOCSheetView: View {
                                     Text(bookmark.snippet).foregroundStyle(.secondary).lineLimit(3)
                                 }
                             }
-                            .swipeActions { Button("删除", role: .destructive) { appState.removeBookmark(id: bookmark.id) } }
+                            .swipeActions { Button("删除", role: .destructive) { removeBookmark(bookmark.id) } }
                         }
                     }
                 } else { AnnotationsListView(bookID: current.id) }
+            }
+            .safeAreaInset(edge: .top) {
+                if selectedTab == 1, let bookmarkError {
+                    OperationErrorBanner(message: bookmarkError, retry: { if let failedBookmark { removeBookmark(failedBookmark) } }, close: { self.bookmarkError = nil; failedBookmark = nil })
+                }
             }
             .navigationTitle("目录与笔记")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { appState.isTOCPresented = false } } }
         }
+    }
+
+    private func removeBookmark(_ id: String) {
+        bookmarkError = appState.removeBookmark(id: id).errorMessage
+        failedBookmark = bookmarkError == nil ? nil : id
     }
 }

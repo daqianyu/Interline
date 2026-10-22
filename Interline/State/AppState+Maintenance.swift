@@ -21,9 +21,9 @@ extension AppState {
         return true
     }
 
-    public func retryPendingDeletions() {
-        guard !isMaintenanceBusy, !isImporting else { return }
-        guard requireSettledDrafts() else { return }
+    @discardableResult public func retryPendingDeletions() -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting else { return actionFailure("资料正在处理，请稍后重试清理") }
+        guard requireSettledDrafts() else { return .failure("仍有未保存的草稿，请先保存或重试") }
         var next = maintenance
         for task in maintenance.pendingDeletions {
             let notes = annotations.filter { $0.bookID != task.id }
@@ -34,18 +34,21 @@ extension AppState {
             guard storage.purgeContents(bookID: task.id) else { continue }
             next.pendingDeletions.removeAll { $0.id == task.id }
         }
-        guard storage.saveMaintenance(next) else { showFailure(storage.lastError ?? "清理状态保存失败", action: .retryCleanup); return }
+        guard storage.saveMaintenance(next) else { return actionFailure(storage.lastError ?? "清理状态保存失败") }
         maintenance = next
-        if next.pendingDeletions.isEmpty { showToast("数据清理已完成") }
-        else { showFailure("部分数据尚未清理，可在数据与存储中重试", action: .retryCleanup) }
+        if next.pendingDeletions.isEmpty { showToast("数据清理已完成"); return .success }
+        let message = "部分数据尚未清理，可在数据与存储中重试"
+        showFailure(message, action: .retryCleanup)
+        return .failure(message)
     }
 
     public func recoveryFiles() -> [RecoveryFile] { storage.recoveryFiles() }
-    public func retryInterruptedRestore() {
-        guard !isMaintenanceBusy, !isImporting, requireSettledDrafts() else { return }
-        guard storage.recoverInterruptedRestore() else { showFailure(storage.lastError ?? "恢复失败"); return }
+    @discardableResult public func retryInterruptedRestore() -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting, requireSettledDrafts() else { return actionFailure("资料正在处理或有未保存草稿，请稍后重试恢复") }
+        guard storage.recoverInterruptedRestore() else { return actionFailure(storage.lastError ?? "恢复失败") }
         reloadLibrary()
         showToast("数据恢复检查已完成")
+        return .success
     }
     private func reloadLibrary() {
         noteLibraryRevision = UUID()
@@ -170,6 +173,7 @@ extension AppState {
         let store = storage
         do {
             let chapters = try await contentsLoader.load(bookID: book.id, storage: store)
+            try Task.checkCancellation()
             var loaded = book; loaded.chapters = chapters; loaded.updateChapterSummaries()
             return loaded
         } catch is CancellationError { throw CancellationError() }

@@ -101,14 +101,20 @@ extension AppState {
         return true
     }
 
-    public func removeAnnotation(id: String) {
+    @discardableResult public func removeAnnotation(id: String) -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting else { return actionFailure("资料正在处理，请稍后重试删除笔记") }
         let next = annotations.filter { $0.id != id }
-        if storage.saveAnnotations(next) { annotations = next } else { checkSave(false) }
+        guard storage.saveAnnotations(next) else { return actionFailure(storage.lastError ?? "笔记删除失败，请重试") }
+        annotations = next
+        return .success
     }
 
-    public func removeBookmark(id: String) {
+    @discardableResult public func removeBookmark(id: String) -> LibraryActionResult {
+        guard !isMaintenanceBusy, !isImporting else { return actionFailure("资料正在处理，请稍后重试删除书签") }
         let next = bookmarks.filter { $0.id != id }
-        if storage.saveBookmarks(next) { bookmarks = next } else { checkSave(false) }
+        guard storage.saveBookmarks(next) else { return actionFailure(storage.lastError ?? "书签删除失败，请重试") }
+        bookmarks = next
+        return .success
     }
 
     public func notesText(for bookID: String) -> String {

@@ -25,8 +25,9 @@
 | Q04 失败分类与证据 | VERIFIED | 12 项工具测试及 workflow 集成通过；下载产物确认 summary.json 为 success，SHA/运行链接正确；原失败记录保留 |
 | D03 草稿后台保存 | VERIFIED（功能自动回归） | 8 项 DraftPersistenceTests、2 项新增 UI 用例通过；全量 90 单元、11 UI、12 工具测试通过；恢复/失败截图已检查 |
 | D04 备份安全与内存 | VERIFIED（约定的自动回归、模拟器证据及固定样本测量） | 62954b9：111 单元、12 UI、12 工具、3 项测量通过；文件窗口/笔记重启/深色大字与横屏截图已检查 |
-| D05 | IMPLEMENTED，未验收 | 本地异步读取/取消/目标与草稿版本检查及 10 单元、1 UI 已完成；公开上传受阻，iOS 未编译/测试 |
-| D06、Q01、Q03 | 未验收 | 依路线逐项实施；真机用例单独保留 |
+| D05 | VERIFIED（约定的自动回归） | d7148c6：121 单元、13 UI、12 工具通过；读取/取消和草稿恢复提交重启截图已检查 |
+| D06 | VERIFIED（约定的故障回归与局部视觉验收） | 16a7b55：129 单元、15 UI、12 工具全通过；浅色键盘、实际深色最大字号及横屏截图已检查 |
+| Q01、Q03 | IN_PROGRESS，整体未验收 | Q01 矩阵/固定样本、Q03 备份复测/待测范围已准备；实际提供器、启动/阅读性能与真机项目未完成 |
 | P01–P04、U01–U08、A01–A03 | 未验收 | 代码与界面改进、视觉/功能回归 |
 | F01–F09、U09、P05 | 未验收 | 扩展设计细化、开发、兼容和发行验证 |
 
@@ -168,3 +169,63 @@ D03 合并后的主分支 `6d8def4765098235b5fe30a7cee4adfaedf762c4`：
 - D04 已合并为 1c53c008e6d2a077f546186b46af3b58f5a66bf7（PR #9），后续提交以此为基线。
 
 2026-10-23：用户已明确授权 D05 及后续计划持续公开提交与验证后合并；上述 D05 公开授权阻塞已解除，iOS 编译/测试仍待本轮验证。
+
+### D05 最终交付证据
+
+- [PR #10](https://github.com/daqianyu/Interline/pull/10)，源码 d7148c6f67765a2372e89895aa1e622e68e42672。
+- [功能运行 39814308841](https://github.com/daqianyu/Interline/actions/runs/39814308841)，job 119948642517：
+  编译成功，121 单元、13 UI、12 工具全部通过。独立备份测量 39814308912 同样成功。
+- 下载产物 12442236746，摘要 success，测试合并引用 92038be5cf0776d410aa6d4d429e5ddd1fcb4039。
+- 实际查看 DraftChapterLoading（09F0BEA6…png）显示读取原文及可用取消入口；
+  DraftChapterCancelled（F29483DB…png）保留原输入、已保存状态且保存按钮恢复；
+  UI 另断言取消后重启笔记数为 0。CommittedResumedDraft（0410DFCB…png）显示笔记 (1)
+  和 Retained draft 内容，证明管理页恢复后提交、重启持久化正确。
+- 10 个新单测包括后台读取、切书、取消、移出/永久删除、完成维护/导入后的旧结果、
+  草稿更新/丢弃、无效章节/摘录/组合字符、原标注身份、缓存复用和真实写入失败重试。
+- 仍整书解码、保留单本暂存；已经开始的同步解码不被强行终止，但取消后不提交。
+  导航留白/正文颜色仍归 U01/U07，不宣称真机性能或全无障碍已通过。
+- D05 PR #10 已以 merge 合并至 a1f52f99f79641fe814df17a1069c8dc72ae5817；
+  为不打断 D06 验证，本记录随 D06 的纯文档收尾一起提交。下一项 D06。
+
+### D06 最大字号失败与修复记录（非最终通过）
+
+- d54cf6e 的 [运行 39819343651](https://github.com/daqianyu/Interline/actions/runs/39819343651)，
+  job 119967277441：129 单元和 12 工具通过，15 UI 中 14 通过、1 失败。
+  testDetailRemovalFailureKeepsPageAndBook 在竖屏最大字号 retryPageOperation.isHittable 失败；
+  草稿关闭/提交/重启及详情元数据故障用例均通过，但不代表整项验收通过。
+- 全部 UI 执行 575.6 秒后，xcodebuild 收尾未结束，最终触及 20 分钟步骤上限；
+  产物 12445745669 摘要正确分类 test_failure，合并测试引用 b00bc6875b8ad956024f9d030fd8d7f841b22c91。
+- 已实际解出并查看 DetailRemovalFailureDarkLarge（278EF5B3…png）：错误区与 Form 行重叠，
+  重试被遮挡；不是将可点击断言解释成环境误报。
+- 16a7b553c4ad2654c447576c5fda53f2fa4aa38c 将详情错误区放入独立布局空间，完整原因可滚动，
+  横屏限制说明区高度、保留两个操作并使用不透明底色；按钮至少 44×44 pt。
+  原断言保留，增加实际点击重试及横屏关闭；[复验 39823324689](https://github.com/daqianyu/Interline/actions/runs/39823324689) 进行中。
+- d54cf6e 的独立备份复测 39819343542 成功；原值和工具链记录在 10-performance-baseline.md。
+  后续布局源码仍需自己的编译/回归证据，不能用该性能通过掩盖 UI 失败。
+
+### D06 最终交付证据
+
+- [PR #11](https://github.com/daqianyu/Interline/pull/11)，应用/iOS 测试源码
+  `16a7b553c4ad2654c447576c5fda53f2fa4aa38c`；基线为 D05 合并后的 main。
+- [功能回归 39823324689](https://github.com/daqianyu/Interline/actions/runs/39823324689)，
+  job 119979983328：Xcode 27.0（27A266a）编译成功，**129 单元、15 UI、12 工具全通过**。
+  合并测试引用 `55cf6c8cad4965077df944f2b6ad3ab30f36cefc`；下载产物 12445689200，
+  summary.json 为 success，引用 SHA 和运行链接已核对。
+- 新增 PageOperationTests 8 项覆盖真实存储障碍、原字节保留、重试后持久化、待清理删除、
+  写入屏障、取消正文读取与文件取消 domain/code；原 121 单元保留并通过。
+- 新增详情元数据故障和移出故障两个 UI；保留原 13 项。实际点击重试仍失败时页面保持；
+  关闭错误后仍留在详情，回书架原书仍在。最大字号竖屏/横屏的两个按钮均可点击。
+- 实际查看 iPhone 18 Pro 模拟器截图：DetailMetadataFailure（0A9929A4…png）在键盘上方
+  显示错误与两项操作；输入保留由 UI 值断言验证。DetailRemovalFailureDarkLarge
+  （6B2928A2…png）、Landscape（73CDAE65…png）确为深色最大字号，错误与列表不再交叠，
+  重试和关闭清楚可见；完整原因可滚动，不缩小系统最大字号。
+- 修改涵盖 LibraryActionResult、AppState 的书库/维护/笔记/书签操作及详情、数据管理、
+  笔记/书签/标注、导入页；共用 OperationErrorBanner，避免将无关全局提示配到当前操作。
+  删除/保存失败不先发布成功；永久删除后的待清理可用同一 ID 重试；文件取消不误报故障。
+- 同源码 [独立备份测量 39823324867](https://github.com/daqianyu/Interline/actions/runs/39823324867)，
+  job 119979984907、产物 12445209666：Xcode 27.0、三变体各三次通过；原值见
+  10-performance-baseline.md，不外推真机或阅读性能。
+- 后续收尾仅补计划、验收及 Q01 样本生成器；应用和 iOS 测试源码与 16a7b55 保持一致。
+  生成器的字节/编码/尺寸/拒绝覆盖检查另列，不冒充实际系统文件提供器验收。
+- D06 按约定范围 VERIFIED；整个发行计划未最终验收。下一项 Q01 的实际选择/导入/恢复，
+  iCloud、签名真机、VoiceOver、完整 44 pt 触控审核及长读/能耗仍未通过。
