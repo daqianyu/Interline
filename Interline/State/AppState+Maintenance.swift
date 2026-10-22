@@ -48,6 +48,7 @@ extension AppState {
         showToast("数据恢复检查已完成")
     }
     private func reloadLibrary() {
+        noteLibraryRevision = UUID()
         books = storage.loadBooks(includeContents: !loadsContentsOnDemand)
         maintenance = storage.loadMaintenance(); drafts = storage.loadDrafts()
         draftSaveStates = [:]

@@ -9,6 +9,8 @@ struct NoteEditorView: View {
     @State private var errorMessage: String?
     @State private var saved = false
     @State private var committing = false
+    @State private var commitTask: Task<Void, Never>?
+    @State private var cancellingCommit = false
 
     private var saveState: DraftSaveState? { appState.draftSaveState(for: draft.id) }
     private var interactionBlocked: Bool { committing || appState.isMaintenanceBusy || appState.isImporting }
@@ -46,6 +48,13 @@ struct NoteEditorView: View {
                                 .frame(minHeight: 44).disabled(interactionBlocked).accessibilityIdentifier("retryDraftSave")
                         }
                     }
+                    if committing && commitTask != nil {
+                        HStack {
+                            ProgressView().accessibilityHidden(true)
+                            Text(cancellingCommit ? "正在取消，输入仍保留" : "正在读取并验证原文")
+                                .accessibilityIdentifier("noteCommitStatus")
+                        }
+                    }
                     if let visibleError {
                         Text(visibleError).foregroundStyle(.red).accessibilityIdentifier("noteSaveError")
                     }
@@ -54,15 +63,21 @@ struct NoteEditorView: View {
             .navigationTitle(draft.annotationID == nil ? "写笔记" : "编辑笔记")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { Task { await cancel() } }.disabled(interactionBlocked)
+                    Button(commitTask == nil ? "取消" : "取消保存") {
+                        if let commitTask { cancellingCommit = true; commitTask.cancel() }
+                        else { Task { await cancel() } }
+                    }.disabled(commitTask == nil ? interactionBlocked : cancellingCommit)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(committing ? "保存中" : "保存") { Task { await save() } }
+                    Button(committing ? "保存中" : "保存") { startSave() }
                         .disabled(interactionBlocked).accessibilityIdentifier("saveNote")
                 }
             }
             .onChange(of: note) { _, _ in if !saved { _ = queueDraft() } }
-            .onDisappear { if !saved { Task { await appState.flushDrafts() } } }
+            .onDisappear {
+                commitTask?.cancel()
+                if !saved { Task { await appState.flushDrafts() } }
+            }
             .interactiveDismissDisabled(interactionBlocked || visibleError != nil || saveState == .saving)
         }
     }
@@ -89,13 +104,20 @@ struct NoteEditorView: View {
         dismiss()
     }
 
-    private func save() async {
+    private func startSave() {
         guard !committing else { return }
         committing = true
-        defer { committing = false }
-        guard queueDraft(), await appState.flushDrafts() else { return }
-        let success = appState.saveDraftNote(draft, text: note)
+        cancellingCommit = false
+        errorMessage = nil
+        commitTask = Task { await save() }
+    }
+
+    private func save() async {
+        defer { committing = false; commitTask = nil; cancellingCommit = false }
+        guard queueDraft(), await appState.flushDrafts(), !Task.isCancelled else { return }
+        let success = await appState.saveDraftNoteAsync(draft, text: note)
         guard success else {
+            guard !Task.isCancelled else { return }
             errorMessage = "笔记未能保存，输入已保留为草稿，请重试。"
             return
         }

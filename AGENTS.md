@@ -24,6 +24,10 @@ acceptance task in this repository. It supplements the product principles below.
    Never mark an item verified or the release accepted without matching evidence.
 7. Keep changes in reviewable commits/PRs. Follow the user's existing GitHub
    authorization; this document does not introduce an extra confirmation gate.
+   On 2026-10-23 the user explicitly authorized continuing publication of D05 and
+   subsequent established-plan code, tests, and plan records to the public
+   `daqianyu/Interline` repository, and merging after verification passes.
+   This standing authorization applies within that plan and destination.
 8. End each delivery with completed IDs, validation, remaining blockers, and the
    next step. Plans must live in the repository and remain readable without chat history.
 

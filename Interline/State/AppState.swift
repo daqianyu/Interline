@@ -33,16 +33,21 @@ public final class AppState: ObservableObject {
     var pendingDrafts: [String: PendingDraft] = [:]
     var draftDebounceTask: Task<Void, Never>?
     var draftSaveTask: Task<Bool, Never>?
-    @Published public internal(set) var isMaintenanceBusy = false
+    @Published public internal(set) var isMaintenanceBusy = false {
+        didSet { if isMaintenanceBusy { noteLibraryRevision = UUID() } }
+    }
     @Published public private(set) var isLoadingBook = false
-    @Published public internal(set) var isImporting = false
+    @Published public internal(set) var isImporting = false {
+        didSet { if isImporting { noteLibraryRevision = UUID() } }
+    }
     @Published public var isStoragePresented = false
     @Published public var shelfSort = ShelfSort.recentlyRead
     @Published public var shelfFilter = ShelfFilter.all
     @Published public internal(set) var navigationHistory: [ReadingLocation] = []
     @Published public internal(set) var searchHighlight: ReadingHighlight?
     var highlightTask: Task<Void, Never>?
-    let contentsLoader = BookContentsLoader()
+    var contentsLoader = BookContentsLoader()
+    var noteLibraryRevision = UUID()
     private var bookLoadTask: Task<Void, Never>?
     private var bookLoadGeneration = UUID()
     let loadsContentsOnDemand: Bool
