@@ -231,4 +231,17 @@ final class BackupContainerTests: XCTestCase {
         let types = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]])
         XCTAssertTrue(types.contains { $0["UTTypeIdentifier"] as? String == "com.interline.backup" })
     }
+
+    func testManifestBudgetIncludesEscapingAndRejectsOversizeMetadata() throws {
+        let file = try export([book()])
+        let (manifest, _) = try unpack(Data(contentsOf: file.url))
+        let bytes = try BackupContainer.encodeManifest(manifest)
+        XCTAssertNoThrow(try JSONDecoder().decode(BackupManifest.self, from: bytes))
+        let exact = try BackupContainer.encodeManifest(manifest, maximumBytes: bytes.count)
+        XCTAssertEqual(exact.count, bytes.count)
+        XCTAssertEqual(try JSONDecoder().decode(BackupManifest.self, from: exact).books, manifest.books)
+        XCTAssertThrowsError(try BackupContainer.encodeManifest(manifest, maximumBytes: bytes.count - 1))
+        var value = book(); value.title = String(repeating: "\u{0}\"\\", count: 100)
+        XCTAssertThrowsError(try BackupContainer.checkMetadataBudget([value], bookmarks: [], annotations: [], drafts: [], maximumBytes: 64))
+    }
 }

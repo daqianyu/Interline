@@ -29,12 +29,16 @@ SHA-256 校验原始正文 JSON 字节，只用于发现损坏，不表示来源
 资源上限：整个文件仍为 256 MiB；manifest 最多 32 MiB；书数最多 10,000；
 单书 canonical UTF-16 长度仍为 24 Mi；读取/复制块至多 64 KiB。
 每次追加检查剩余预算，整数运算先用减法核验，未知版本和 partial 标记直接拒绝。
+导出前预检元数据原始字符串预算；manifest 数组逐项编码并检查实际输出，转义与括号也
+计入 32 MiB。单条记录/单本元数据的编码仍需要临时缓冲，不声称所有对象都是流式解析。
 单书解析仍需一次加载该书，元数据/笔记仍需驻留；不称为恒定内存。
 
 ## 导出与临时文件
 
 在独立 UUID 临时目录中逐书读取、验证、编码、计算校验并暂存正文，再编码 manifest，
 最后写入容器并逐文件分块复制。完成关闭文件后才把导出结果交给系统文档选择器。
+每个复制块显式排空 Foundation 自动释放池，避免逐块读取的临时 NSData 累积到整个
+导出任务结束；由独立进程的峰值测量复核该行为。
 使用系统“存储到文件”流程导出 URL，避免 FileDocument 再生成整份 Data。
 使用 Apple 已公开的 `UIDocumentPickerViewController(forExporting:asCopy:)`，并以
 `asCopy: true` 导出；参见 [官方 API](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller/init(forexporting:ascopy:))。

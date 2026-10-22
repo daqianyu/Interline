@@ -241,19 +241,23 @@ final class ReaderFlowTests: XCTestCase {
         app.buttons["数据与存储"].tap()
         XCTAssertTrue(app.staticTexts["backupFormatHelp"].waitForExistence(timeout: 10))
         app.buttons["exportLibraryBackup"].tap()
-        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "取消"])).firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["DOCPicker.actionButton"].waitForExistence(timeout: 20))
         screenshot(app, name: "BackupFileExportPicker")
-        cancel.tap()
+        // iOS 27's initial folder shows Back/Save rather than a Cancel button.
+        // Exercise the system sheet's interactive cancellation once.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.90)))
         let exportButton = app.buttons["exportLibraryBackup"]
         let restored = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: exportButton)
         wait(for: [restored], timeout: 15)
         app.buttons["restoreLibraryBackup"].tap()
-        XCTAssertTrue(cancel.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["Browse View (Picker)"].firstMatch.waitForExistence(timeout: 15))
         screenshot(app, name: "BackupFileImportPicker")
-        cancel.tap()
-        XCTAssertTrue(exportButton.waitForExistence(timeout: 15))
-        XCTAssertFalse(app.staticTexts["storageError"].exists)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.90)))
+        let importDismissed = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: exportButton)
+        wait(for: [importDismissed], timeout: 15)
+        XCTAssertFalse(app.descendants(matching: .any)["storageError"].firstMatch.exists)
         app.terminate()
         app.launchArguments += ["-AppleInterfaceStyle", "Dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()

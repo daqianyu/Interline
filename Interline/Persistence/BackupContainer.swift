@@ -45,6 +45,7 @@ enum BackupContainer {
         let notes = annotations.filter { ids.contains($0.bookID) }
         let savedDrafts = drafts.filter { ids.contains($0.bookID) }
         try BackupValidation.references(bookIDs: ids, bookmarks: marks, annotations: notes, drafts: savedDrafts)
+        try checkMetadataBudget(all, bookmarks: marks, annotations: notes, drafts: savedDrafts)
         // Check all disk sources before loading the first body.
         var sourceRemaining = maximumBytes
         for book in all {
@@ -91,7 +92,7 @@ enum BackupContainer {
         let manifest = BackupManifest(createdAt: createdAt, books: Array(headers.prefix(books.count)),
             removedBooks: Array(headers.dropFirst(books.count)), preferences: preferences, bookmarks: marks,
             annotations: notes, drafts: savedDrafts, entries: entries)
-        let manifestData = try JSONEncoder().encode(manifest)
+        let manifestData = try encodeManifest(manifest)
         guard manifestData.count <= maximumManifestBytes,
               manifestData.count <= maximumBytes - magic.count - 8,
               bodyBytes <= maximumBytes - magic.count - 8 - manifestData.count else { throw LibraryBackupError.tooLarge }
@@ -213,16 +214,80 @@ enum BackupContainer {
         return data
     }
 
+    static func checkMetadataBudget(_ books: [Book], bookmarks: [Bookmark], annotations: [ReadingAnnotation],
+                                    drafts: [NoteDraft], maximumBytes: Int = maximumManifestBytes) throws {
+        guard maximumBytes >= 0, maximumBytes <= maximumManifestBytes else { throw LibraryBackupError.metadataTooLarge }
+        var remaining = maximumBytes
+        func text(_ value: String?) throws {
+            guard let value else { return }
+            guard value.utf8.count <= remaining else { throw LibraryBackupError.metadataTooLarge }
+            remaining -= value.utf8.count
+        }
+        for book in books {
+            try Task.checkCancellation()
+            for value in [book.id, book.title, book.author, book.themeColorHex, book.textColorHex,
+                          book.contentFingerprint, book.sourceEncoding, book.readingLocation?.chapterID] { try text(value) }
+            for chapter in book.summaries { try text(chapter.id); try text(chapter.title) }
+        }
+        for mark in bookmarks {
+            for value in [mark.id, mark.bookId, mark.chapterTitle, mark.snippet, mark.location?.chapterID] { try text(value) }
+        }
+        for note in annotations {
+            for value in [note.id, note.bookID, note.chapterID, note.quote, note.note] { try text(value) }
+        }
+        for draft in drafts {
+            for value in [draft.id, draft.bookID, draft.chapterID, draft.quote, draft.text, draft.annotationID] { try text(value) }
+        }
+    }
+
+    /// Arrays are encoded item by item; the full manifest is never encoded twice.
+    static func encodeManifest(_ manifest: BackupManifest, maximumBytes: Int = maximumManifestBytes) throws -> Data {
+        guard maximumBytes >= 0, maximumBytes <= maximumManifestBytes else { throw LibraryBackupError.metadataTooLarge }
+        var data = Data()
+        func append(_ bytes: Data) throws {
+            try Task.checkCancellation()
+            guard bytes.count <= maximumBytes - data.count else { throw LibraryBackupError.metadataTooLarge }
+            data.append(bytes)
+        }
+        func literal(_ value: String) throws { try append(Data(value.utf8)) }
+        func value<T: Encodable>(_ value: T) throws { try append(JSONEncoder().encode(value)) }
+        func array<T: Encodable>(_ values: [T]) throws {
+            try literal("[")
+            for (index, item) in values.enumerated() {
+                if index > 0 { try literal(",") }
+                try autoreleasepool { try value(item) }
+            }
+            try literal("]")
+        }
+        try literal("{\"version\":"); try value(manifest.version)
+        try literal(",\"complete\":"); try value(manifest.complete)
+        try literal(",\"createdAt\":"); try value(manifest.createdAt)
+        try literal(",\"books\":"); try array(manifest.books)
+        try literal(",\"removedBooks\":"); try array(manifest.removedBooks)
+        try literal(",\"preferences\":"); try value(manifest.preferences)
+        try literal(",\"bookmarks\":"); try array(manifest.bookmarks)
+        try literal(",\"annotations\":"); try array(manifest.annotations)
+        try literal(",\"drafts\":"); try array(manifest.drafts)
+        try literal(",\"entries\":"); try array(manifest.entries)
+        try literal("}")
+        return data
+    }
+
     private static func copyBody(_ url: URL, to output: FileHandle, count: Int) throws {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
         var remaining = count
         while remaining > 0 {
             try Task.checkCancellation()
-            let chunk = try input.read(upToCount: min(64 * 1_024, remaining)) ?? Data()
-            guard !chunk.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-            try output.write(contentsOf: chunk)
-            remaining -= chunk.count
+            // Foundation can autorelease read buffers; drain every chunk so copying
+            // the full archive doesn't retain its total size until the task ends.
+            let copied = try autoreleasepool {
+                let chunk = try input.read(upToCount: min(64 * 1_024, remaining)) ?? Data()
+                guard !chunk.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                try output.write(contentsOf: chunk)
+                return chunk.count
+            }
+            remaining -= copied
         }
         guard (try input.read(upToCount: 1) ?? Data()).isEmpty else { throw CocoaError(.fileReadCorruptFile) }
     }
