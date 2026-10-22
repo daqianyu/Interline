@@ -14,6 +14,7 @@ struct TextSelectionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var editingDraft: NoteDraft?
+    @State private var closeAfterNoteSaved = false
 
     var body: some View {
         NavigationStack {
@@ -36,8 +37,15 @@ struct TextSelectionSheet: View {
                 }
             }
             .toolbar { ToolbarItem(placement: .bottomBar) { Text(selection.length > 0 ? "已选 \(selectedQuote.count) 字" : "请选择文字").font(.caption) } }
-            .sheet(item: $editingDraft) { draft in
-                NoteEditorView(draft: appState.draft(for: draft.id) ?? draft) { dismiss() }
+            .sheet(item: $editingDraft, onDismiss: {
+                // Finish the nested editor dismissal before dismissing its presenter.
+                // Concurrent dismissals can leave the selection sheet on screen.
+                if closeAfterNoteSaved {
+                    closeAfterNoteSaved = false
+                    dismiss()
+                }
+            }) { draft in
+                NoteEditorView(draft: appState.draft(for: draft.id) ?? draft) { closeAfterNoteSaved = true }
             }
         }
     }

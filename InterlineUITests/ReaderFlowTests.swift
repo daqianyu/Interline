@@ -154,7 +154,9 @@ final class ReaderFlowTests: XCTestCase {
         editor.tap(); editor.typeText("A reading note")
         app.buttons["saveNote"].tap()
         let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
-        wait(for: [dismissed], timeout: 5)
+        wait(for: [dismissed], timeout: 15)
+        let selectionDismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.textViews["selectableText"])
+        wait(for: [selectionDismissed], timeout: 15)
         _ = readyCanvas(app)
         app.terminate(); app.launch()
         app.buttons["continueReading"].tap()
@@ -271,9 +273,14 @@ final class ReaderFlowTests: XCTestCase {
         }
         XCTAssertTrue(dataAction.waitForExistence(timeout: 10))
         dataAction.tap()
+        XCTAssertTrue(app.buttons["exportLibraryBackup"].waitForExistence(timeout: 10))
         let help = app.staticTexts["backupFormatHelp"]
-        XCTAssertTrue(help.waitForExistence(timeout: 10))
-        for _ in 0..<3 where !help.isHittable { app.swipeUp() }
+        // Form creates offscreen cells lazily at accessibility sizes.
+        for _ in 0..<6 {
+            if help.exists && help.isHittable { break }
+            app.collectionViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(help.exists)
         XCTAssertTrue(help.isHittable)
         screenshot(app, name: "BackupHelpDarkLargeText")
         defer { XCUIDevice.shared.orientation = .portrait }
