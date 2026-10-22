@@ -262,7 +262,15 @@ final class ReaderFlowTests: XCTestCase {
         app.launchArguments += ["-AppleInterfaceStyle", "Dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
         app.buttons["libraryMenu"].tap()
-        app.buttons["数据与存储"].tap()
+        XCTAssertTrue(app.buttons["最近阅读"].waitForExistence(timeout: 10))
+        let dataAction = app.buttons["数据与存储"]
+        screenshot(app, name: "LibraryMenuDarkLargeText")
+        for _ in 0..<4 {
+            if dataAction.exists && dataAction.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(dataAction.waitForExistence(timeout: 10))
+        dataAction.tap()
         let help = app.staticTexts["backupFormatHelp"]
         XCTAssertTrue(help.waitForExistence(timeout: 10))
         for _ in 0..<3 where !help.isHittable { app.swipeUp() }

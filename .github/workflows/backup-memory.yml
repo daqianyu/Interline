@@ -3,7 +3,17 @@ name: Backup Memory Measurements
 on:
   push:
     branches: [main]
+    paths:
+      - 'Interline/**'
+      - 'InterlinePerformanceTests/**'
+      - 'project.yml'
+      - '.github/workflows/backup-memory.yml'
   pull_request:
+    paths:
+      - 'Interline/**'
+      - 'InterlinePerformanceTests/**'
+      - 'project.yml'
+      - '.github/workflows/backup-memory.yml'
   workflow_dispatch:
 
 permissions:
