@@ -261,7 +261,8 @@ final class ReaderFlowTests: XCTestCase {
         wait(for: [importDismissed], timeout: 15)
         XCTAssertFalse(app.descendants(matching: .any)["storageError"].firstMatch.exists)
         app.terminate()
-        app.launchArguments += ["-AppleInterfaceStyle", "Dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchEnvironment["INTERLINE_UI_DARK_APPEARANCE"] = "1"
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
         app.buttons["libraryMenu"].tap()
         XCTAssertTrue(app.buttons["最近阅读"].waitForExistence(timeout: 10))

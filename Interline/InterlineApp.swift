@@ -20,7 +20,14 @@ struct InterlineApp: App {
             if ProcessInfo.processInfo.environment["INTERLINE_UI_FAIL_DRAFT_SAVE"] == "1" {
                 try? FileManager.default.createDirectory(at: directory.appendingPathComponent("drafts-v1.json"), withIntermediateDirectories: true)
             }
-            _appState = StateObject(wrappedValue: AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true))
+            let state = AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true)
+            // Use the app's real appearance preference in isolated UI tests;
+            // AppleInterfaceStyle launch defaults do not reliably change UIKit.
+            if ProcessInfo.processInfo.environment["INTERLINE_UI_DARK_APPEARANCE"] == "1" {
+                state.preferences.followsSystemAppearance = false
+                state.preferences.isDarkMode = true
+            }
+            _appState = StateObject(wrappedValue: state)
             return
         }
         #endif
