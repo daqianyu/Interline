@@ -26,7 +26,12 @@ public struct RootContentView: View {
             ToastOverlaysView()
                 .zIndex(100)
         }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { appState.persistSession() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                appState.persistSession()
+                Task { await appState.flushDrafts() }
+            }
+        }
         .preferredColorScheme((appState.preferences.followsSystemAppearance ?? true) ? nil : (appState.preferences.isDarkMode ? .dark : .light))
         .transaction { transaction in
             if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }

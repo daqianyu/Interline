@@ -31,11 +31,12 @@ final class ReaderFlowTests: XCTestCase {
         element.tap()
     }
 
-    private func launch(failNoteSave: Bool = false) -> XCUIApplication {
+    private func launch(failNoteSave: Bool = false, failDraftSave: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["INTERLINE_UI_TESTING"] = "1"
         app.launchEnvironment["INTERLINE_UI_TEST_SUITE"] = UUID().uuidString
         if failNoteSave { app.launchEnvironment["INTERLINE_UI_FAIL_NOTE_SAVE"] = "1" }
+        if failDraftSave { app.launchEnvironment["INTERLINE_UI_FAIL_DRAFT_SAVE"] = "1" }
         app.launch()
         return app
     }
@@ -179,6 +180,50 @@ final class ReaderFlowTests: XCTestCase {
         XCTAssertEqual(editor.value as? String, "Keep this draft")
         XCTAssertTrue(app.buttons["saveNote"].exists)
         screenshot(app, name: "NoteSaveFailure")
+    }
+
+    func testCancelledDraftSurvivesRelaunchAndCanBeResumed() {
+        let app = launch()
+        beginNote(app)
+        let editor = app.textViews["noteEditor"]
+        editor.tap(); editor.typeText("Retained draft")
+        let status = app.staticTexts["draftSaveStatus"]
+        let saved = expectation(for: NSPredicate(format: "label == %@", "已保存"), evaluatedWith: status)
+        wait(for: [saved], timeout: 15)
+        app.buttons["取消"].tap()
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
+        wait(for: [dismissed], timeout: 10)
+        app.terminate(); app.launch()
+        app.buttons["libraryMenu"].tap()
+        app.buttons["数据与存储"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Retained draft")).firstMatch
+        for _ in 0..<4 {
+            if row.exists && row.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        XCTAssertEqual(editor.value as? String, "Retained draft")
+        XCTAssertEqual(status.label, "已保存")
+        screenshot(app, name: "ResumedDraft")
+    }
+
+    func testFailedDraftSaveShowsRetryAndCancelKeepsInput() {
+        let app = launch(failDraftSave: true)
+        if app.buttons["关闭提示"].exists { app.buttons["关闭提示"].tap() }
+        beginNote(app)
+        let editor = app.textViews["noteEditor"]
+        editor.tap(); editor.typeText("Do not lose this input")
+        XCTAssertTrue(app.staticTexts["noteSaveError"].waitForExistence(timeout: 15))
+        XCTAssertEqual(app.staticTexts["draftSaveStatus"].label, "未保存")
+        XCTAssertTrue(app.buttons["retryDraftSave"].exists)
+        app.buttons["取消"].tap()
+        let finished = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: app.buttons["saveNote"])
+        wait(for: [finished], timeout: 15)
+        XCTAssertEqual(editor.value as? String, "Do not lose this input")
+        XCTAssertEqual(app.staticTexts["draftSaveStatus"].label, "未保存")
+        screenshot(app, name: "DraftSaveFailure")
     }
 
     func testDataAndStorageManagementIsReachable() {

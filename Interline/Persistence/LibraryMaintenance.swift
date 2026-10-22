@@ -33,7 +33,10 @@ extension ReadingStorage {
         writeFile(value, name: "maintenance-v1.json")
     }
     public func loadDrafts() -> [NoteDraft] { readFile([NoteDraft].self, name: "drafts-v1.json", fallback: []) }
-    @discardableResult public func saveDrafts(_ value: [NoteDraft]) -> Bool { writeFile(value, name: "drafts-v1.json") }
+    @discardableResult public func saveDrafts(_ value: [NoteDraft]) -> Bool {
+        guard !isWritingDrafts else { lastError = "草稿正在保存，请稍后重试"; return false }
+        return writeFile(value, name: "drafts-v1.json")
+    }
 
     public func recoveryFiles() -> [RecoveryFile] {
         let folder = directory.appendingPathComponent("Recovery")
@@ -56,6 +59,7 @@ extension ReadingStorage {
     /// An interrupted operation rolls back on next launch; immutable staged bodies may
     /// be left unreferenced, but no existing body is replaced by a backup merge.
     func beginTransaction() throws {
+        guard !isWritingDrafts else { lastError = "草稿正在保存，请稍后重试"; throw CocoaError(.fileWriteUnknown) }
         guard !transactionActive else { throw CocoaError(.fileWriteUnknown) }
         guard recoverInterruptedRestore() else { throw CocoaError(.fileWriteUnknown) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -72,6 +76,7 @@ extension ReadingStorage {
 
     @discardableResult func recoverInterruptedRestore() -> Bool {
         guard FileManager.default.fileExists(atPath: journalURL.path) else { return true }
+        guard !isWritingDrafts else { lastError = "草稿正在保存，暂不能恢复资料"; return false }
         do {
             let checkpoint = try decoder.decode(Checkpoint.self, from: Data(contentsOf: journalURL))
             let allowed = Set(["catalog-v2.json", "annotations-v1.json", "maintenance-v1.json", "drafts-v1.json"])

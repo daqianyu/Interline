@@ -21,6 +21,31 @@ public final class ReadingStorage {
     let decoder = JSONDecoder()
     public internal(set) var lastError: String?
     var transactionActive = false
+    private(set) var isWritingDrafts = false
+    // Injectable boundary for deterministic in-flight/failure tests; production
+    // encoding, preservation and file I/O all execute off the main actor.
+    var draftWriteOperation: @Sendable ([NoteDraft], URL) async throws -> Void = { drafts, directory in
+        try await Task.detached(priority: .utility) {
+            try DraftFileWriter.write(drafts, directory: directory)
+        }.value
+    }
+
+    func saveDraftsInBackground(_ drafts: [NoteDraft]) async -> Bool {
+        guard !isWritingDrafts, !transactionActive else {
+            lastError = "草稿或资料维护正在保存，请稍后重试"
+            return false
+        }
+        guard permitWrite() else { return false }
+        isWritingDrafts = true
+        defer { isWritingDrafts = false }
+        do {
+            try await draftWriteOperation(drafts, directory)
+            return true
+        } catch {
+            lastError = "草稿保存失败，未保存输入仍保留，请重试"
+            return false
+        }
+    }
     func permitWrite() -> Bool {
         guard transactionActive || !FileManager.default.fileExists(atPath: directory.appendingPathComponent("restore-journal-v1.json").path) else {
             lastError = "上次数据操作尚未恢复，请先在数据与存储中重试恢复"

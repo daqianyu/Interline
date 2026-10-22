@@ -37,6 +37,7 @@ extension AppState {
     /// A retained draft may outlive its original annotation. Save it as a new
     /// annotation in that case, but never redirect it to a different quotation.
     @discardableResult public func saveDraftNote(_ draft: NoteDraft, text: String) -> Bool {
+        guard !isMaintenanceBusy, requireSettledDrafts() else { return false }
         if let id = draft.annotationID, let existing = annotations.first(where: { $0.id == id }) {
             guard existing.bookID == draft.bookID, existing.chapterID == draft.chapterID,
                   existing.range == draft.range, existing.quote == draft.quote else {
