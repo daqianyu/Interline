@@ -209,6 +209,59 @@ final class ReaderFlowTests: XCTestCase {
         XCTAssertEqual(editor.value as? String, "Retained draft")
         XCTAssertEqual(status.label, "已保存")
         screenshot(app, name: "ResumedDraft")
+        app.buttons["saveNote"].tap()
+        let committed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
+        wait(for: [committed], timeout: 15)
+        app.terminate(); app.launch()
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        tapSettled(app.buttons["readerTOC"])
+        XCTAssertTrue(app.segmentedControls.buttons["笔记 (1)"].waitForExistence(timeout: 10))
+        app.segmentedControls.buttons["笔记 (1)"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Retained draft")).firstMatch.waitForExistence(timeout: 10))
+        screenshot(app, name: "CommittedResumedDraft")
+    }
+
+    func testDraftCommitCanBeCancelledWhileReading() {
+        let app = launch()
+        beginNote(app)
+        let editor = app.textViews["noteEditor"]
+        editor.tap(); editor.typeText("Cancel reading without losing input")
+        app.buttons["取消"].tap()
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
+        wait(for: [dismissed], timeout: 15)
+        app.terminate()
+        app.launchEnvironment["INTERLINE_UI_DELAY_CONTENTS"] = "1"
+        app.launch()
+        app.buttons["libraryMenu"].tap()
+        app.buttons["数据与存储"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Cancel reading without losing input")).firstMatch
+        for _ in 0..<5 {
+            if row.exists && row.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(row.exists)
+        row.tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        app.buttons["saveNote"].tap()
+        XCTAssertTrue(app.staticTexts["noteCommitStatus"].waitForExistence(timeout: 10))
+        screenshot(app, name: "DraftChapterLoading")
+        app.buttons["取消保存"].tap()
+        let cancelled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: app.buttons["saveNote"])
+        wait(for: [cancelled], timeout: 15)
+        XCTAssertEqual(editor.value as? String, "Cancel reading without losing input")
+        XCTAssertEqual(app.staticTexts["draftSaveStatus"].label, "已保存")
+        XCTAssertFalse(app.staticTexts["noteSaveError"].exists)
+        screenshot(app, name: "DraftChapterCancelled")
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "INTERLINE_UI_DELAY_CONTENTS")
+        app.launch()
+        app.buttons["continueReading"].tap()
+        let canvas = readyCanvas(app)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        tapSettled(app.buttons["readerTOC"])
+        XCTAssertTrue(app.segmentedControls.buttons["笔记 (0)"].waitForExistence(timeout: 10))
     }
 
     func testFailedDraftSaveShowsRetryAndCancelKeepsInput() {

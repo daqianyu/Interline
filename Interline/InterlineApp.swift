@@ -21,6 +21,9 @@ struct InterlineApp: App {
                 try? FileManager.default.createDirectory(at: directory.appendingPathComponent("drafts-v1.json"), withIntermediateDirectories: true)
             }
             let state = AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true)
+            if ProcessInfo.processInfo.environment["INTERLINE_UI_DELAY_CONTENTS"] == "1" {
+                state.contentsLoader = BookContentsLoader(beforeRead: { try? await Task.sleep(for: .seconds(30)) })
+            }
             // Use the app's real appearance preference in isolated UI tests;
             // AppleInterfaceStyle launch defaults do not reliably change UIKit.
             if ProcessInfo.processInfo.environment["INTERLINE_UI_DARK_APPEARANCE"] == "1" {
