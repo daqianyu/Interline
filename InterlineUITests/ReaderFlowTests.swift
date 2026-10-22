@@ -2,6 +2,35 @@ import XCTest
 
 @MainActor
 final class ReaderFlowTests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    /// Accessibility existence alone does not mean an animating toolbar has
+    /// reached its touch location. Observe the actual frame; do not sleep or retry taps.
+    private func tapSettled(_ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 10))
+        var previousFrame = element.frame
+        var stableSince = Date()
+        let settled = NSPredicate { _, _ in
+            guard element.exists, element.isHittable else {
+                previousFrame = .null
+                stableSince = Date()
+                return false
+            }
+            let frame = element.frame
+            if frame != previousFrame {
+                previousFrame = frame
+                stableSince = Date()
+                return false
+            }
+            return Date().timeIntervalSince(stableSince) >= 0.3
+        }
+        let ready = expectation(for: settled, evaluatedWith: element)
+        wait(for: [ready], timeout: 15)
+        element.tap()
+    }
+
     private func launch(failNoteSave: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["INTERLINE_UI_TESTING"] = "1"
@@ -123,12 +152,15 @@ final class ReaderFlowTests: XCTestCase {
         let editor = app.textViews["noteEditor"]
         editor.tap(); editor.typeText("A reading note")
         app.buttons["saveNote"].tap()
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: editor)
+        wait(for: [dismissed], timeout: 5)
         _ = readyCanvas(app)
         app.terminate(); app.launch()
         app.buttons["continueReading"].tap()
         let canvas = readyCanvas(app)
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        app.buttons["readerTOC"].tap()
+        tapSettled(app.buttons["readerTOC"])
+        XCTAssertTrue(app.segmentedControls.firstMatch.waitForExistence(timeout: 5), "目录弹窗未呈现")
         XCTAssertTrue(app.segmentedControls.buttons["笔记 (1)"].waitForExistence(timeout: 5))
         app.segmentedControls.buttons["笔记 (1)"].tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "A reading note")).firstMatch.waitForExistence(timeout: 5))

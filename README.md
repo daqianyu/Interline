@@ -2,6 +2,13 @@
 
 A local, native SwiftUI reader focused on Chinese long-form text.
 
+## Development plan
+
+All ongoing development follows [the plan index](plans/README.md) and the
+repository's [agent instructions](AGENTS.md). The active improvement program has
+requirements, development design, test/acceptance design, an evidence-based final
+acceptance record, and an execution log. Unfinished work remains explicitly tracked.
+
 ## Build and test
 
 - Xcode 27 with an iOS 27 simulator
@@ -18,6 +25,17 @@ xcodebuild test -project Interline.xcodeproj -scheme Interline \
 Choose an installed iOS 27 iPhone simulator if the example device is unavailable.
 CI uses GitHub's `xcode-27` image, checks the SDK, and selects an available simulator.
 The deployment target is iOS 27, as required by `AGENTS.md`.
+
+The `reader-verification` CI artifact contains `build.log`, the result bundle,
+UI attachments, and `verification-summary/summary.json` / `summary.md`.
+The summary links the checkout revision and workflow run, distinguishes observed
+test assertions from build/runner failures, and never retries or waives failures.
+Nested XCTest suite totals are listed separately, not added together. Missing logs
+and cancellations do not imply a passing test run. To test the classifier locally:
+
+```sh
+python3 -m unittest discover -s scripts/tests -v
+```
 
 ## Reader foundation
 
@@ -135,6 +153,12 @@ exact bytes under `Application Support/Interline/Recovery` with a unique name.
 If that backup cannot be saved, the original file is left untouched and the
 operation reports failure. Recovery copies are retained for manual recovery;
 the app does not claim to reconstruct a malformed file automatically.
+Unreadable UserDefaults bookmarks, preferences, and reading records receive the
+same protection: a binary property-list archive retains the original key/value
+(including exact Data bytes) before replacement. Failure to archive refuses the
+write. Valid values keep their original formats without generating recovery copies.
+These raw recovery files can be exported from Data and storage; they are not added
+to the existing complete-library JSON backup automatically.
 Missing book contents preserve saved reading anchors and prompt reimport rather
 than opening an empty reader. Shelf removal and undo update the visible library
 only after the catalog is saved. Text selection captures an immutable page and
@@ -155,6 +179,9 @@ launch restores the previous catalog, notes, drafts, maintenance state and readi
 records if the operation was interrupted. Immutable newly staged bodies may remain
 unreferenced after a failed operation; they do not replace existing bodies. A failed
 rollback blocks subsequent writes until recovery succeeds.
+If rollback itself fails, the app explicitly reports that recovery is still
+pending, keeps the journal, and directs the user to retry instead of claiming the
+previous data has already been restored.
 
 Removed books remain accessible across launches. Permanent deletion first records
 a durable cleanup task; partial cleanup can be retried without reimporting the book.
