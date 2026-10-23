@@ -3,7 +3,26 @@
 import argparse
 import hashlib
 import json
+import plistlib
 from pathlib import Path
+
+
+def simulator_documents(data_root: Path) -> Path:
+    """Read the selected CI simulator's retained container without booting it.
+
+    Fail on a missing/ambiguous bundle identity instead of checking another app.
+    This host-side inspection is only used on the disposable CI simulator.
+    """
+    containers = data_root / "Containers" / "Data" / "Application"
+    matches = []
+    for metadata in containers.glob("*/.com.apple.mobile_container_manager.metadata.plist"):
+        with metadata.open("rb") as handle:
+            identity = plistlib.load(handle).get("MCMMetadataIdentifier")
+        if identity == "com.interline.app":
+            matches.append(metadata.parent / "Documents")
+    if len(matches) != 1:
+        raise ValueError(f"Expected one Interline data container, found {len(matches)}")
+    return matches[0]
 
 
 def verify(documents: Path, manifest: Path, minimum_suites: int) -> dict:
@@ -28,12 +47,15 @@ def verify(documents: Path, manifest: Path, minimum_suites: int) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--documents", required=True, type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--documents", type=Path)
+    source.add_argument("--simulator-data-root", type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--minimum-suites", type=int, default=5)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    result = verify(args.documents, args.manifest, args.minimum_suites)
+    documents = args.documents if args.documents is not None else simulator_documents(args.simulator_data_root)
+    result = verify(documents, args.manifest, args.minimum_suites)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Verified {len(result['files'])} source files in {result['suites']} suites")
 
