@@ -40,6 +40,13 @@ targets:
       - InterlineUITests
     dependencies:
       - target: Interline
+  InterlineFileProviderUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - InterlineFileProviderUITests
+    dependencies:
+      - target: Interline
   InterlinePerformanceTests:
     type: bundle.unit-test
     platform: iOS
@@ -66,3 +73,11 @@ schemes:
     test:
       targets:
         - InterlinePerformanceTests
+  InterlineFileProviderVerification:
+    build:
+      targets:
+        Interline: all
+        InterlineFileProviderUITests: [test]
+    test:
+      targets:
+        - InterlineFileProviderUITests

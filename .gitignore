@@ -7,3 +7,5 @@ __pycache__/
 verification-summary/
 Interline/Info.plist
 
+Interline/Testing/ProviderSamples/
+provider-source-verification.json
