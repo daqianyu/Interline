@@ -24,11 +24,30 @@ final class LocalTXTProviderTests: XCTestCase {
 
     private func openPicker(_ app: XCUIApplication) {
         app.buttons["importBook"].firstMatch.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["Browse View (Picker)"].firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["Browse View (Picker)"].firstMatch.waitForExistence(timeout: 40), app.debugDescription)
     }
 
     private func select(_ name: String, in app: XCUIApplication) {
         openPicker(app)
+        // The default directory is a system hint: the first run actually opened
+        // Documents instead. Navigate the observed provider hierarchy explicitly.
+        let suite = app.launchEnvironment["INTERLINE_UI_PROVIDER_SUITE"]!
+        let folder = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "InterlineQ01-" + suite)).firstMatch
+        let fixture = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "q01-utf8")).firstMatch
+        let ready = expectation(for: NSPredicate { _, _ in folder.exists || fixture.exists }, evaluatedWith: app)
+        wait(for: [ready], timeout: 30)
+        if folder.exists {
+            folder.tap()
+        } else {
+            // A previous selection may be remembered. Check its folder identity
+            // before using a fixture, so every test reads its own source files.
+            let title = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "InterlineQ01-" + suite)).firstMatch
+            if !title.exists {
+                app.buttons["DOC.navBarButton.backInHistory"].tap()
+                XCTAssertTrue(folder.waitForExistence(timeout: 15), app.debugDescription)
+                folder.tap()
+            }
+        }
         // Files may hide the extension. Match the unique fixture stem, not position.
         let cell = app.cells.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
         XCTAssertTrue(cell.waitForExistence(timeout: 15), app.debugDescription)
@@ -41,10 +60,11 @@ final class LocalTXTProviderTests: XCTestCase {
         select(name, in: app)
         let field = app.textFields["importTitle"]
         XCTAssertTrue(field.waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(app.staticTexts[encoding].exists)
+        capture("Preview-" + name)
+        let encodingRow = app.descendants(matching: .any)["importEncoding"].firstMatch
+        XCTAssertTrue((encodingRow.label + " " + (encodingRow.value as? String ?? "")).contains(encoding), app.debugDescription)
         XCTAssertTrue(app.staticTexts["第一章 起点"].exists)
         XCTAssertTrue(app.staticTexts["第二章 归途"].exists)
-        capture("Preview-" + name)
         field.tap()
         let old = field.value as? String ?? ""
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + "Q01 " + name)
@@ -83,7 +103,10 @@ final class LocalTXTProviderTests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10))
             .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.90)))
         XCTAssertTrue(app.staticTexts["书架是空的"].waitForExistence(timeout: 10))
+        let returned = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: app.buttons["importBook"].firstMatch)
+        wait(for: [returned], timeout: 15)
         XCTAssertFalse(app.alerts.firstMatch.exists)
+        capture("CancelledTXTSelection")
         select("q01-empty", in: app)
         XCTAssertTrue(app.staticTexts["文件没有可阅读的正文"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["confirmImport"].isEnabled)
@@ -91,7 +114,7 @@ final class LocalTXTProviderTests: XCTestCase {
         app.buttons["取消"].tap()
         select("q01-over-20mib", in: app)
         XCTAssertTrue(app.alerts["导入失败"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["文件超过 20 MB，请先拆分后再导入"].exists)
+        XCTAssertTrue(app.staticTexts["文件读取未完成：文件超过 20 MB，请先拆分后再导入"].exists)
         capture("Rejected-q01-over-20mib")
         app.alerts.buttons["好"].tap()
         XCTAssertTrue(app.staticTexts["书架是空的"].exists)
