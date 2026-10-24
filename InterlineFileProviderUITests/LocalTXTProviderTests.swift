@@ -4,6 +4,29 @@ import XCTest
 final class LocalTXTProviderTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    private func tapSettled(_ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 10))
+        var previousFrame = element.frame
+        var stableSince = Date()
+        let settled = NSPredicate { _, _ in
+            guard element.exists, element.isHittable else {
+                previousFrame = .null
+                stableSince = Date()
+                return false
+            }
+            let frame = element.frame
+            if frame != previousFrame {
+                previousFrame = frame
+                stableSince = Date()
+                return false
+            }
+            return Date().timeIntervalSince(stableSince) >= 0.3
+        }
+        let ready = expectation(for: settled, evaluatedWith: element)
+        wait(for: [ready], timeout: 15)
+        element.tap()
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         let suite = UUID().uuidString
@@ -90,6 +113,22 @@ final class LocalTXTProviderTests: XCTestCase {
         let body = expectation(for: NSPredicate(format: "label CONTAINS %@", "这是文件流程验收专用的原创测试文字"), evaluatedWith: canvas)
         wait(for: [body], timeout: 15)
         capture("ReadAfterRelaunch-" + name)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        tapSettled(app.buttons["readerTOC"])
+        tapSettled(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "第二章 归途")).firstMatch)
+        let secondText = "取消和失败后，原书、笔记和草稿仍应保留。"
+        let secondChapter = expectation(for: NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "第二章 归途", secondText), evaluatedWith: canvas)
+        wait(for: [secondChapter], timeout: 15)
+        capture("SecondChapter-" + name)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(resume.waitForExistence(timeout: 15))
+        XCTAssertTrue(resume.label.contains("第二章 归途"), resume.label)
+        resume.tap()
+        let restoredChapter = expectation(for: NSPredicate(format: "exists == true AND label CONTAINS %@ AND label CONTAINS %@", "第二章 归途", secondText), evaluatedWith: canvas)
+        wait(for: [restoredChapter], timeout: 15)
+        XCTAssertFalse(canvas.label.contains("这是文件流程验收专用的原创测试文字"))
+        capture("SecondChapterAfterRelaunch-" + name)
     }
 
     func testUTF8AndDuplicate() { importAndRead("q01-utf8", encoding: "UTF-8", duplicate: true) }
