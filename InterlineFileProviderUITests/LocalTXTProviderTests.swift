@@ -67,6 +67,16 @@ final class LocalTXTProviderTests: XCTestCase {
             let title = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "InterlineQ01-" + suite)).firstMatch
             if !title.exists {
                 app.buttons["DOC.navBarButton.backInHistory"].tap()
+                // Recorded iOS 27 history returned to the provider sidebar,
+                // rather than the Documents root. Follow the visible hierarchy.
+                if !folder.waitForExistence(timeout: 5) {
+                    let local = app.cells["DOC.sidebar.item.On My iPhone"]
+                    XCTAssertTrue(local.waitForExistence(timeout: 15), app.debugDescription)
+                    local.tap()
+                    let container = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "Interline,")).firstMatch
+                    XCTAssertTrue(container.waitForExistence(timeout: 15), app.debugDescription)
+                    container.tap()
+                }
                 XCTAssertTrue(folder.waitForExistence(timeout: 15), app.debugDescription)
                 folder.tap()
             }

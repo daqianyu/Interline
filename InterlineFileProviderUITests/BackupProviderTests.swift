@@ -98,7 +98,11 @@ final class BackupProviderTests: XCTestCase {
         storage(app)
         chooseBackup(app, suite: provider)
         capture("FP05CancelConfirmation")
-        tapSettled(app.buttons["取消"])
+        // iOS 27 presents this confirmation as a popover without a Cancel
+        // button. Its actual cancellation gesture is a tap outside the popover.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)).tap()
+        let cancelled = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["合并恢复"])
+        wait(for: [cancelled], timeout: 15)
         tapSettled(app.buttons["完成"])
         XCTAssertTrue(app.staticTexts["书架是空的"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["continueReading"].exists)
