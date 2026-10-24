@@ -25,7 +25,7 @@ def simulator_documents(data_root: Path) -> Path:
     return matches[0]
 
 
-def verify(documents: Path, manifest: Path, minimum_suites: int, require_backup: bool = False) -> dict:
+def verify(documents: Path, manifest: Path, minimum_suites: int, require_backup: bool = False, expected_backups: int = 1) -> dict:
     expected = json.loads(manifest.read_text(encoding="utf-8"))
     suites = sorted(documents.glob("InterlineQ01-*"))
     if len(suites) < minimum_suites:
@@ -53,8 +53,8 @@ def verify(documents: Path, manifest: Path, minimum_suites: int, require_backup:
             if len(data) != entry["bytes"] or actual != entry["sha256"]:
                 raise ValueError("Exported backup source changed")
             backups.append({"suite": suite.name, "file": name, "bytes": len(data), "sha256": actual})
-    if require_backup and len(backups) != 1:
-        raise ValueError(f"Expected one exported backup baseline, found {len(backups)}")
+    if require_backup and len(backups) != expected_backups:
+        raise ValueError(f"Expected {expected_backups} exported backup baseline(s), found {len(backups)}")
     return {"result": "passed", "suites": len(suites), "files": records, "backups": backups,
             "scope": "Original source bytes only; UI assertions separately establish import behavior"}
 
@@ -68,9 +68,10 @@ def main():
     parser.add_argument("--minimum-suites", type=int, default=5)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--require-backup", action="store_true")
+    parser.add_argument("--expected-backups", type=int, default=1)
     args = parser.parse_args()
     documents = args.documents if args.documents is not None else simulator_documents(args.simulator_data_root)
-    result = verify(documents, args.manifest, args.minimum_suites, args.require_backup)
+    result = verify(documents, args.manifest, args.minimum_suites, args.require_backup, args.expected_backups)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Verified {len(result['files'])} source files in {result['suites']} suites")
 

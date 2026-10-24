@@ -38,7 +38,7 @@ enum UITestFileFixtures {
         }
         guard !FileManager.default.fileExists(atPath: storage.catalogURL.path) else { return }
         let role = ProcessInfo.processInfo.environment["INTERLINE_UI_BACKUP_ROLE"]
-        if role == "source" {
+        if role == "source" || role == "source-v1" {
             var book = try TXTImportService.parse(data: Data(contentsOf: directory.appendingPathComponent("q01-utf8.txt")), fileName: "FP05.txt").book
             book.title = "FP05 Backup Source"
             book.currentChapterIndex = 1
@@ -50,10 +50,17 @@ enum UITestFileFixtures {
             let draft = NoteDraft(bookID: book.id, chapterID: chapter.id, range: range, quote: quote, text: "FP05 retained draft")
             guard storage.saveBooks([book]), storage.saveRecord(for: book), storage.saveAnnotations([note]) else { throw CocoaError(.fileWriteUnknown) }
             try DraftFileWriter.write([draft], directory: storage.directory)
+            let mark = Bookmark(bookId: book.id, chapterIndex: 1, chapterTitle: chapter.title, pageIndex: 0, snippet: quote, location: book.readingLocation)
+            let preferences = ReadingPreferences(fontSize: 22)
+            guard storage.saveBookmarks([mark]), storage.savePreferences(preferences) else { throw CocoaError(.fileWriteUnknown) }
+            if role == "source-v1" {
+                let data = try V1BackupWriter.encode(books: [book], removedBooks: [], preferences: preferences, bookmarks: [mark], annotations: [note], drafts: [draft], contentsURL: { storage.contentsURL(bookID: $0) })
+                try data.write(to: directory.appendingPathComponent("FP05-v1.json"), options: .atomic)
+            }
         } else {
             guard storage.saveBooks([]) else { throw CocoaError(.fileWriteUnknown) }
-            if role == "destination" {
-                let name = "Interline-完整备份.interlinebackup"
+            if role == "destination" || role == "destination-v1" {
+                let name = role == "destination-v1" ? "FP05-v1.json" : "Interline-完整备份.interlinebackup"
                 let data = try Data(contentsOf: directory.appendingPathComponent(name))
                 let baseline: [String: Any] = ["name": name, "bytes": data.count, "sha256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()]
                 try JSONSerialization.data(withJSONObject: baseline, options: [.sortedKeys]).write(to: directory.appendingPathComponent("backup-source.json"), options: .atomic)

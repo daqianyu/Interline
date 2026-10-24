@@ -50,11 +50,11 @@ final class BackupProviderTests: XCTestCase {
         if folder.exists { tapSettled(folder) }
     }
 
-    private func chooseBackup(_ app: XCUIApplication, suite: String) {
+    private func chooseBackup(_ app: XCUIApplication, suite: String, stem: String = "Interline-完整备份") {
         tapSettled(app.buttons["restoreLibraryBackup"])
         XCTAssertTrue(app.descendants(matching: .any)["Browse View (Picker)"].firstMatch.waitForExistence(timeout: 40))
         providerFolder(app, suite: suite)
-        let file = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "Interline-完整备份")).firstMatch
+        let file = app.cells.matching(NSPredicate(format: "label CONTAINS %@", stem)).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 20), app.debugDescription)
         capture("FP05SelectExportedBackup")
         tapSettled(file)
@@ -132,15 +132,49 @@ final class BackupProviderTests: XCTestCase {
         XCTAssertTrue(resume.waitForExistence(timeout: 20))
         XCTAssertTrue(resume.label.contains("FP05 Current Title"), resume.label)
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'bookCover-'" )).count, 1)
-        tapSettled(resume)
+        checkReader(app, format: "v2")
+    }
+
+    private func checkReader(_ app: XCUIApplication, format: String) {
+        tapSettled(app.buttons["continueReading"])
         let canvas = app.descendants(matching: .any)["readerCanvas"].firstMatch
         let body = expectation(for: NSPredicate(format: "exists == true AND label CONTAINS %@ AND label CONTAINS %@", "第二章 归途", "取消和失败后，原书、笔记和草稿仍应保留。"), evaluatedWith: canvas)
         wait(for: [body], timeout: 20)
-        capture("FP05RestoredSecondChapter")
+        capture("FP05RestoredSecondChapter-" + format)
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        tapSettled(app.buttons["readerSettings"])
+        XCTAssertTrue(app.staticTexts["22"].waitForExistence(timeout: 15))
+        capture("FP05RestoredFontSize-" + format)
+        tapSettled(app.buttons["完成"])
         tapSettled(app.buttons["readerTOC"])
+        tapSettled(app.segmentedControls.buttons["书签 (1)"])
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "第二章 归途")).firstMatch.waitForExistence(timeout: 15))
+        capture("FP05RestoredBookmark-" + format)
         tapSettled(app.segmentedControls.buttons["笔记 (1)"])
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "FP05 retained note")).firstMatch.waitForExistence(timeout: 15))
-        capture("FP05RestoredSingleNote")
+        capture("FP05RestoredSingleNote-" + format)
+    }
+
+    func testV1WriterFileSelectionAndRepeatedRestore() {
+        let provider = UUID().uuidString
+        let source = launch(library: UUID().uuidString, provider: provider, role: "source-v1")
+        XCTAssertTrue(source.buttons["continueReading"].label.contains("FP05 Backup Source"))
+        capture("FP05V1WriterSourceLibrary")
+        source.terminate()
+        let app = launch(library: UUID().uuidString, provider: provider, role: "destination-v1")
+        XCTAssertTrue(app.staticTexts["书架是空的"].exists)
+        for _ in 0..<2 {
+            storage(app)
+            chooseBackup(app, suite: provider, stem: "FP05-v1")
+            tapSettled(app.buttons["合并恢复"])
+            checkDraft(app)
+            app.terminate(); app.launch()
+            let resume = app.buttons["continueReading"]
+            XCTAssertTrue(resume.waitForExistence(timeout: 20))
+            XCTAssertTrue(resume.label.contains("FP05 Backup Source"))
+            XCTAssertTrue(resume.label.contains("第二章 归途"))
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'bookCover-'" )).count, 1)
+        }
+        checkReader(app, format: "v1")
     }
 }
