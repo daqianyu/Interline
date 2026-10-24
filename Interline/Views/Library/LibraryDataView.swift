@@ -127,6 +127,9 @@ struct LibraryDataView: View {
                     if let message = FileOperationFailure.message(for: error, operation: "备份选择") { errorMessage = message; retryAction = .importBackup }
                 }
             }
+            #if DEBUG
+            .fileDialogDefaultDirectory(UITestFileFixtures.directory)
+            #endif
         }
     }
     private func perform(_ action: RetryAction) {
