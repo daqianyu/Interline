@@ -29,6 +29,9 @@ struct BookImportButton: View {
                 errorMessage = FileOperationFailure.message(for: error, operation: "文件选择")
             }
         }
+        #if DEBUG
+        .fileDialogDefaultDirectory(UITestFileFixtures.directory)
+        #endif
         .sheet(item: $source) { source in ImportPreviewView(source: source) }
         .alert("导入失败", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("重新选择文件") { errorMessage = nil; showingPicker = true }
@@ -71,10 +74,10 @@ struct ImportPreviewView: View {
                 }
                 if let parsed, !parsing {
                     Section("书籍信息") {
-                        TextField("书名", text: $title)
+                        TextField("书名", text: $title).accessibilityIdentifier("importTitle")
                         TextField("作者", text: $author)
-                        LabeledContent("识别编码", value: parsed.detectedEncoding)
-                        LabeledContent("章节", value: "\(parsed.book.chapters.count)")
+                        LabeledContent("识别编码", value: parsed.detectedEncoding).accessibilityIdentifier("importEncoding")
+                        LabeledContent("章节", value: "\(parsed.book.chapters.count)").accessibilityIdentifier("importChapterCount")
                     }
                     Section("章节预览") {
                         ForEach(parsed.book.chapters.prefix(8)) { chapter in Text(chapter.title) }
@@ -109,6 +112,7 @@ struct ImportPreviewView: View {
                             busy = false
                         }
                     }
+                    .accessibilityIdentifier("confirmImport")
                     .disabled(parsed == nil || parsing || busy || duplicate != nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }

@@ -20,7 +20,10 @@ struct InterlineApp: App {
             if ProcessInfo.processInfo.environment["INTERLINE_UI_FAIL_DRAFT_SAVE"] == "1" {
                 try? FileManager.default.createDirectory(at: directory.appendingPathComponent("drafts-v1.json"), withIntermediateDirectories: true)
             }
-            let state = AppState(storage: ReadingStorage(defaults: defaults, directory: directory), loadsContentsOnDemand: true)
+            let storage = ReadingStorage(defaults: defaults, directory: directory)
+            do { try UITestFileFixtures.prepare(storage: storage) }
+            catch { fatalError("Q01 fixture preparation failed: \(error)") }
+            let state = AppState(storage: storage, loadsContentsOnDemand: true)
             if ProcessInfo.processInfo.environment["INTERLINE_UI_BLOCK_CATALOG"] == "1" {
                 // Keep the valid bytes; only the isolated UI test library gets
                 // a real filesystem obstacle after it has loaded its catalog.
