@@ -82,6 +82,7 @@ jobs:
             -project Interline.xcodeproj \
             -scheme InterlineFileProviderVerification \
             -destination "platform=iOS Simulator,id=$READER_SIMULATOR_ID" \
+            -only-testing:InterlineFileProviderUITests/LocalTXTProviderTests \
             -parallel-testing-enabled NO \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_REQUIRED=NO \

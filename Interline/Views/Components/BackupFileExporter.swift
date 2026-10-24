@@ -12,6 +12,9 @@ struct BackupFileExporter: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(backup: backup, onFinish: onFinish) }
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forExporting: [backup.url], asCopy: true)
+        #if DEBUG
+        picker.directoryURL = UITestFileFixtures.directory
+        #endif
         picker.delegate = context.coordinator
         picker.shouldShowFileExtensions = true
         return picker

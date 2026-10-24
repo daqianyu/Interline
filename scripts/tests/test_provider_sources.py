@@ -42,6 +42,24 @@ class ProviderSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Expected at least'):
             provider.verify(self.root, self.manifest, 5)
 
+    def test_exported_backup_unchanged(self):
+        (self.suite / 'backup.interlinebackup').write_bytes(b'backup')
+        (self.suite / 'backup-source.json').write_text(json.dumps({'name': 'backup.interlinebackup', 'bytes': 6, 'sha256': hashlib.sha256(b'backup').hexdigest()}))
+        result = provider.verify(self.root, self.manifest, 1, True)
+        self.assertEqual(len(result['backups']), 1)
+        with self.assertRaisesRegex(ValueError, 'Expected 2 exported backup baseline'):
+            provider.verify(self.root, self.manifest, 1, True, 2)
+
+    def test_exported_backup_mutation_fails(self):
+        (self.suite / 'backup.interlinebackup').write_bytes(b'change')
+        (self.suite / 'backup-source.json').write_text(json.dumps({'name': 'backup.interlinebackup', 'bytes': 6, 'sha256': hashlib.sha256(b'backup').hexdigest()}))
+        with self.assertRaisesRegex(ValueError, 'Exported backup source changed'):
+            provider.verify(self.root, self.manifest, 1, True)
+
+    def test_missing_backup_baseline_fails(self):
+        with self.assertRaisesRegex(ValueError, 'Expected 1 exported backup baseline'):
+            provider.verify(self.root, self.manifest, 1, True)
+
 
 class SimulatorContainerTests(unittest.TestCase):
     def setUp(self):

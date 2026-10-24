@@ -1,0 +1,145 @@
+name: FP05 Backup Provider Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Interline/**'
+      - 'InterlineFileProviderUITests/**'
+      - 'plans/2026-10-improvements/fixtures/file-provider/**'
+      - 'scripts/**'
+      - 'project.yml'
+      - '.github/workflows/backup-provider.yml'
+  pull_request:
+    paths:
+      - 'Interline/**'
+      - 'InterlineFileProviderUITests/**'
+      - 'plans/2026-10-improvements/fixtures/file-provider/**'
+      - 'scripts/**'
+      - 'project.yml'
+      - '.github/workflows/backup-provider.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-provider-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # GitHub's documented Xcode 27 image; macos-15 defaults to Xcode 16.4.
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test verification summary classifier
+        run: python3 -m unittest discover -s scripts/tests -v
+
+      - name: Verify toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          python3 - <<'PY'
+          import subprocess
+          sdk = subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip()
+          assert int(sdk.split('.')[0]) >= 27, f'iOS 27 SDK required, found {sdk}'
+          PY
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate isolated provider test project
+        run: |
+          python3 plans/2026-10-improvements/fixtures/file-provider/generate.py --output Interline/Testing/ProviderSamples --include-oversized
+          xcodegen generate
+          /usr/libexec/PlistBuddy -c 'Add :UIFileSharingEnabled bool true' Interline/Info.plist
+          /usr/libexec/PlistBuddy -c 'Add :LSSupportsOpeningDocumentsInPlace bool true' Interline/Info.plist
+
+      - name: Select available iPhone simulator
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '--json']))['devices']
+          candidates = [d for runtime, ds in devices.items() if 'iOS-27' in runtime for d in ds if d['name'].startswith('iPhone') and d.get('isAvailable')]
+          if not candidates:
+              raise SystemExit('No available iOS 27 iPhone simulator')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('READER_SIMULATOR_ID=' + candidates[0]['udid'] + '\n')
+          PY
+
+      - name: Build and test reader
+        id: reader_tests
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Interline.xcodeproj \
+            -scheme InterlineFileProviderVerification \
+            -destination "platform=iOS Simulator,id=$READER_SIMULATOR_ID" \
+            -only-testing:InterlineFileProviderUITests/BackupProviderTests \
+            -parallel-testing-enabled NO \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build.log
+
+      - name: Check original provider sources
+        timeout-minutes: 1
+        run: |
+          python3 scripts/verify_provider_sources.py --simulator-data-root "$HOME/Library/Developer/CoreSimulator/Devices/$READER_SIMULATOR_ID/data" --manifest Interline/Testing/ProviderSamples/expected.json --minimum-suites 2 --require-backup --expected-backups 2 --output provider-source-verification.json
+
+      - name: Summarize verification evidence
+        if: always()
+        timeout-minutes: 1
+        env:
+          TEST_STEP_OUTCOME: ${{ steps.reader_tests.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 scripts/summarize_verification.py \
+            --log build.log \
+            --outcome "${TEST_STEP_OUTCOME:-unknown}" \
+            --job-status "${JOB_STATUS:-unknown}" \
+            --output-directory verification-summary
+
+      - name: Export UI test screenshots
+        if: always()
+        run: |
+          python3 - <<'PY_EXPORT'
+          from pathlib import Path
+          import subprocess
+          bundle = Path('TestResults.xcresult')
+          if (bundle / 'Info.plist').exists():
+              try:
+                  subprocess.run(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(bundle), '--output-path', 'UIScreenshots'], timeout=90, check=False)
+              except subprocess.TimeoutExpired:
+                  print('Screenshot export exceeded 90 seconds; the result bundle remains available.')
+          PY_EXPORT
+
+      - name: Upload verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-provider-verification
+          path: |
+            provider-source-verification.json
+            build.log
+            TestResults.xcresult
+            UIScreenshots
+            verification-summary
+
+      - name: Upload cancelled build log
+        if: cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cancelled-build-log
+          path: |
+            provider-source-verification.json
+            build.log
+            verification-summary
+          retention-days: 7
