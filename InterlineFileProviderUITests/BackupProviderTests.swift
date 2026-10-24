@@ -45,9 +45,22 @@ final class BackupProviderTests: XCTestCase {
         let name = "InterlineQ01-" + suite
         let folder = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
         let title = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
-        let ready = expectation(for: NSPredicate { _, _ in folder.exists || title.exists }, evaluatedWith: app)
+        let local = app.cells["DOC.sidebar.item.On My iPhone"]
+        let container = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "Interline,")).firstMatch
+        let ready = expectation(for: NSPredicate { _, _ in folder.exists || title.exists || local.exists || container.exists }, evaluatedWith: app)
         wait(for: [ready], timeout: 40)
+        // Recorded first legacy selection opens On My iPhone, one level above
+        // Interline. Enter each observed level rather than trusting the hint.
+        if local.exists {
+            tapSettled(local)
+            XCTAssertTrue(container.waitForExistence(timeout: 20), app.debugDescription)
+        }
+        if container.exists {
+            tapSettled(container)
+            XCTAssertTrue(folder.waitForExistence(timeout: 20), app.debugDescription)
+        }
         if folder.exists { tapSettled(folder) }
+        else { XCTAssertTrue(title.exists, app.debugDescription) }
     }
 
     private func chooseBackup(_ app: XCUIApplication, suite: String, stem: String = "Interline-完整备份") {
