@@ -25,7 +25,7 @@ def simulator_documents(data_root: Path) -> Path:
     return matches[0]
 
 
-def verify(documents: Path, manifest: Path, minimum_suites: int, require_backup: bool = False, expected_backups: int = 1) -> dict:
+def verify(documents: Path, manifest: Path, minimum_suites: int, require_backup: bool = False, expected_backups: int = 1, required_backup_names: tuple[str, ...] = ()) -> dict:
     expected = json.loads(manifest.read_text(encoding="utf-8"))
     suites = sorted(documents.glob("InterlineQ01-*"))
     if len(suites) < minimum_suites:
@@ -55,6 +55,10 @@ def verify(documents: Path, manifest: Path, minimum_suites: int, require_backup:
             backups.append({"suite": suite.name, "file": name, "bytes": len(data), "sha256": actual})
     if require_backup and len(backups) != expected_backups:
         raise ValueError(f"Expected {expected_backups} exported backup baseline(s), found {len(backups)}")
+    for name in required_backup_names:
+        count = sum(record["file"] == name for record in backups)
+        if count != 1:
+            raise ValueError(f"Expected exactly one backup baseline for {name}, found {count}")
     return {"result": "passed", "suites": len(suites), "files": records, "backups": backups,
             "scope": "Original source bytes only; UI assertions separately establish import behavior"}
 
@@ -69,9 +73,10 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--require-backup", action="store_true")
     parser.add_argument("--expected-backups", type=int, default=1)
+    parser.add_argument("--require-backup-name", action="append", default=[])
     args = parser.parse_args()
     documents = args.documents if args.documents is not None else simulator_documents(args.simulator_data_root)
-    result = verify(documents, args.manifest, args.minimum_suites, args.require_backup, args.expected_backups)
+    result = verify(documents, args.manifest, args.minimum_suites, args.require_backup, args.expected_backups, tuple(args.require_backup_name))
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Verified {len(result['files'])} source files in {result['suites']} suites")
 

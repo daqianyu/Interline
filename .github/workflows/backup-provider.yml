@@ -92,7 +92,7 @@ jobs:
       - name: Check original provider sources
         timeout-minutes: 1
         run: |
-          python3 scripts/verify_provider_sources.py --simulator-data-root "$HOME/Library/Developer/CoreSimulator/Devices/$READER_SIMULATOR_ID/data" --manifest Interline/Testing/ProviderSamples/expected.json --minimum-suites 2 --require-backup --expected-backups 2 --output provider-source-verification.json
+          python3 scripts/verify_provider_sources.py --simulator-data-root "$HOME/Library/Developer/CoreSimulator/Devices/$READER_SIMULATOR_ID/data" --manifest Interline/Testing/ProviderSamples/expected.json --minimum-suites 2 --require-backup --expected-backups 2 --require-backup-name 'FP05-v1.json' --require-backup-name 'Interline-完整备份.interlinebackup' --output provider-source-verification.json
 
       - name: Summarize verification evidence
         if: always()

@@ -60,6 +60,24 @@ class ProviderSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Expected 1 exported backup baseline'):
             provider.verify(self.root, self.manifest, 1, True)
 
+    def test_two_v1_baselines_cannot_replace_v2(self):
+        for suite in (self.suite, self.root / 'InterlineQ01-second'):
+            suite.mkdir(exist_ok=True)
+            (suite / 'sample.txt').write_bytes(b'original')
+            (suite / 'FP05-v1.json').write_bytes(b'backup')
+            (suite / 'backup-source.json').write_text(json.dumps({'name': 'FP05-v1.json', 'bytes': 6, 'sha256': hashlib.sha256(b'backup').hexdigest()}))
+        with self.assertRaisesRegex(ValueError, 'exactly one backup baseline'):
+            provider.verify(self.root, self.manifest, 2, True, 2, ('FP05-v1.json', 'Interline-完整备份.interlinebackup'))
+
+    def test_both_required_formats_pass(self):
+        for suite, name in ((self.suite, 'FP05-v1.json'), (self.root / 'InterlineQ01-second', 'Interline-完整备份.interlinebackup')):
+            suite.mkdir(exist_ok=True)
+            (suite / 'sample.txt').write_bytes(b'original')
+            (suite / name).write_bytes(b'backup')
+            (suite / 'backup-source.json').write_text(json.dumps({'name': name, 'bytes': 6, 'sha256': hashlib.sha256(b'backup').hexdigest()}))
+        result = provider.verify(self.root, self.manifest, 2, True, 2, ('FP05-v1.json', 'Interline-完整备份.interlinebackup'))
+        self.assertEqual(len(result['backups']), 2)
+
 
 class SimulatorContainerTests(unittest.TestCase):
     def setUp(self):
