@@ -130,9 +130,13 @@ struct LibraryDataView: View {
                     preparedBackup = nil
                     #if DEBUG
                     if UITestBackupFailureProbe.enabled {
-                        Task {
-                            do { failureEvidence = try await UITestBackupFailureProbe.recordCancellation(state: appState) }
-                            catch { failureEvidence = "diagnostic-failed: " + error.localizedDescription }
+                        // Observe release without retaining this View's old
+                        // @State snapshot, which may contain the prepared owner.
+                        let state = appState
+                        let evidence = $failureEvidence
+                        Task { @MainActor [state, evidence] in
+                            do { evidence.wrappedValue = try await UITestBackupFailureProbe.recordCancellation(state: state) }
+                            catch { evidence.wrappedValue = "diagnostic-failed: " + error.localizedDescription }
                         }
                     }
                     #endif
