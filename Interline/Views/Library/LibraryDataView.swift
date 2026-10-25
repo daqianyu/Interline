@@ -14,6 +14,9 @@ struct LibraryDataView: View {
     @State private var confirmingRestore = false
     @State private var readingBackup = false
     @State private var retryAction: RetryAction?
+    #if DEBUG
+    @State private var failureEvidence = ""
+    #endif
     private enum RetryAction {
         case export, importBackup, restoreBook(String), deleteBook(String), cleanup, recover, discardDraft(String)
     }
@@ -91,7 +94,19 @@ struct LibraryDataView: View {
             .navigationTitle("数据与存储").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() }.disabled(appState.isMaintenanceBusy || readingBackup || appState.isImporting) } }
             .interactiveDismissDisabled(appState.isMaintenanceBusy || readingBackup)
-            .onAppear { recovery = appState.recoveryFiles() }
+            .onAppear {
+                recovery = appState.recoveryFiles()
+                #if DEBUG
+                if failureEvidence.isEmpty { recordFailureEvidence("initial") }
+                #endif
+            }
+            #if DEBUG
+            .safeAreaInset(edge: .bottom) {
+                if UITestBackupFailureProbe.enabled {
+                    Text(failureEvidence).font(.caption2).accessibilityIdentifier("fp06Evidence")
+                }
+            }
+            #endif
             .sheet(item: $editingDraft) { draft in NoteEditorView(draft: draft) }
             .sheet(item: $backupExport) { backup in
                 BackupFileExporter(backup: backup) { backupExport = nil }
@@ -110,13 +125,30 @@ struct LibraryDataView: View {
                 }
                 Button("取消", role: .cancel) { preparedBackup = nil }
             } message: { Text("已有书籍、笔记和阅读位置优先保留。请在恢复完成前保持应用打开。") }
-            .onChange(of: confirmingRestore) { _, presented in if !presented { preparedBackup = nil } }
+            .onChange(of: confirmingRestore) { _, presented in
+                if !presented {
+                    preparedBackup = nil
+                    #if DEBUG
+                    if UITestBackupFailureProbe.enabled {
+                        Task {
+                            do { failureEvidence = try await UITestBackupFailureProbe.recordCancellation(state: appState) }
+                            catch { failureEvidence = "diagnostic-failed: " + error.localizedDescription }
+                        }
+                    }
+                    #endif
+                }
+            }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .interlineBackup]) { result in
                 switch result {
                 case .success(let url):
                     readingBackup = true
                     Task {
-                        defer { readingBackup = false }
+                        defer {
+                            readingBackup = false
+                            #if DEBUG
+                            recordFailureEvidence((preparedBackup == nil ? "rejected:" : "prepared:") + url.lastPathComponent)
+                            #endif
+                        }
                         errorMessage = nil; retryAction = nil
                         do {
                             preparedBackup = try await BackupWorker.run { try BackupContainer.prepare(url: url) }
@@ -132,6 +164,13 @@ struct LibraryDataView: View {
             #endif
         }
     }
+    #if DEBUG
+    private func recordFailureEvidence(_ name: String) {
+        guard UITestBackupFailureProbe.enabled else { return }
+        do { failureEvidence = try UITestBackupFailureProbe.record(name, state: appState) }
+        catch { failureEvidence = "diagnostic-failed: " + error.localizedDescription }
+    }
+    #endif
     private func perform(_ action: RetryAction) {
         errorMessage = nil; retryAction = nil
         let result: LibraryActionResult
