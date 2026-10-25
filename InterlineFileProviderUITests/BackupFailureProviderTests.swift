@@ -70,8 +70,14 @@ final class BackupFailureProviderTests: XCTestCase {
         wait(for: [ready], timeout: 20)
     }
 
+    private func retryButton(_ app: XCUIApplication) -> XCUIElement {
+        // The recorded storage banner exposes its visible retry label, but the
+        // nested retryPageOperation identifier was not resolved by XCTest.
+        app.buttons.matching(NSPredicate(format: "label == %@", "重试")).firstMatch
+    }
+
     private func select(_ app: XCUIApplication, suite: String, stem: String, retry: Bool) {
-        tapSettled(app.buttons[retry ? "retryPageOperation" : "restoreLibraryBackup"])
+        tapSettled(retry ? retryButton(app) : app.buttons["restoreLibraryBackup"])
         XCTAssertTrue(app.descendants(matching: .any)["Browse View (Picker)"].firstMatch.waitForExistence(timeout: 40))
         providerFolder(app, suite: suite)
         let file = app.cells.matching(NSPredicate(format: "label CONTAINS %@", stem)).firstMatch
@@ -92,10 +98,17 @@ final class BackupFailureProviderTests: XCTestCase {
             let error = app.staticTexts["pageOperationError"]
             XCTAssertTrue(error.waitForExistence(timeout: 30), app.debugDescription)
             XCTAssertTrue(error.label.contains("备份读取"), error.label)
-            XCTAssertTrue(app.buttons["retryPageOperation"].isHittable)
             XCTAssertFalse(app.buttons["合并恢复"].exists)
             evidence(app, event: "rejected:" + name)
             capture("FP06Rejected-" + name)
+            if index == 0 {
+                let tree = XCTAttachment(string: app.debugDescription)
+                tree.name = "FP06ErrorAccessibilityTree"; tree.lifetime = .keepAlways; add(tree)
+            }
+            let retry = retryButton(app)
+            XCTAssertTrue(retry.waitForExistence(timeout: 15), app.debugDescription)
+            let reachable = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: retry)
+            wait(for: [reachable], timeout: 20)
         }
         // Use the real error retry action to select a valid file. A successful
         // preparation must own a workspace; the host report checks that event.
