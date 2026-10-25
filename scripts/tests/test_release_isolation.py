@@ -44,7 +44,7 @@ class ReleaseIsolationTests(unittest.TestCase):
     def test_nested_samples_fail(self):
         resources = self.app / 'Resources'
         resources.mkdir()
-        for name in ('ProviderSamples', 'expected.json', 'q01-utf8.txt', 'FP05-v1.json'):
+        for name in ('ProviderSamples', 'expected.json', 'q01-utf8.txt', 'FP05-v1.json', 'FP06-valid.interlinebackup', 'fp06-evidence.json'):
             with self.subTest(name=name):
                 sample = resources / name
                 sample.write_bytes(b'sample')

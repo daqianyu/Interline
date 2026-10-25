@@ -38,7 +38,7 @@ enum UITestFileFixtures {
         }
         guard !FileManager.default.fileExists(atPath: storage.catalogURL.path) else { return }
         let role = ProcessInfo.processInfo.environment["INTERLINE_UI_BACKUP_ROLE"]
-        if role == "source" || role == "source-v1" {
+        if role == "source" || role == "source-v1" || role == "failure-provider" {
             var book = try TXTImportService.parse(data: Data(contentsOf: directory.appendingPathComponent("q01-utf8.txt")), fileName: "FP05.txt").book
             book.title = "FP05 Backup Source"
             book.currentChapterIndex = 1
@@ -53,6 +53,9 @@ enum UITestFileFixtures {
             let mark = Bookmark(bookId: book.id, chapterIndex: 1, chapterTitle: chapter.title, pageIndex: 0, snippet: quote, location: book.readingLocation)
             let preferences = ReadingPreferences(fontSize: 22)
             guard storage.saveBookmarks([mark]), storage.savePreferences(preferences) else { throw CocoaError(.fileWriteUnknown) }
+            if role == "failure-provider" {
+                try UITestBackupFailureProbe.prepare(book: book, mark: mark, note: note, draft: draft, preferences: preferences, storage: storage)
+            }
             if role == "source-v1" {
                 let data = try V1BackupWriter.encode(books: [book], removedBooks: [], preferences: preferences, bookmarks: [mark], annotations: [note], drafts: [draft], contentsURL: { storage.contentsURL(bookID: $0) })
                 try data.write(to: directory.appendingPathComponent("FP05-v1.json"), options: .atomic)

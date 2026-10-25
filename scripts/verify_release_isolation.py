@@ -5,7 +5,7 @@ import json
 import plistlib
 from pathlib import Path
 
-MARKERS = (b'INTERLINE_UI_', b'UITestFileFixtures', b'InterlineQ01-', b'InterlineUISmoke-')
+MARKERS = (b'INTERLINE_UI_', b'UITestFileFixtures', b'UITestBackupFailureProbe', b'InterlineQ01-', b'InterlineUISmoke-')
 
 
 def verify(app: Path) -> dict:
@@ -24,7 +24,7 @@ def verify(app: Path) -> dict:
         if marker in binary:
             raise ValueError(f'Test-only binary marker present: {marker.decode()}')
     for resource in app.rglob('*'):
-        if resource.name in ('ProviderSamples', 'expected.json') or resource.name.startswith(('q01-', 'FP05-')):
+        if resource.name in ('ProviderSamples', 'expected.json', 'fp06-evidence.json') or resource.name.startswith(('q01-', 'FP05-', 'FP06-')):
             raise ValueError(f'Test-only resource present: {resource.relative_to(app)}')
     return {'result': 'passed', 'bundle_id': info.get('CFBundleIdentifier'),
             'executable': executable, 'binary_bytes': len(binary),
