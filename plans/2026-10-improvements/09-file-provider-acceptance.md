@@ -152,3 +152,44 @@ TXT 专项 40122769474 成功（5 UI 与 40 源文件检查），备份专项 40
 
 后续仅补四份计划文档，应用/测试/脚本/workflow 保持通过源码。按持续授权合并 PR #14。
 FP-05 本地范围完成，Q01 不关闭；下一执行点 FP-06 损坏备份与暂存清理，外部条件不变。
+
+### Q01 / FP-05 验证门槛补强（2026-10-25）
+
+PR #14 已于北京时间 03:11 合并为 9ad3978。受测源码 5a8fac5 的四组 CI
+40122769426 / 40122769471 / 40122769474 / 40122769432 均已成功。
+最后一个仅文档提交 9474b00 的完整回归、备份专项及内存检查成功；TXT 运行
+40124096911 / job 120961697697 在 runner 初始化时出现
+“Timed out waiting for AX loaded notification”，未执行测试，源文件检查未运行。
+已仅重跑该失败 job，保留原失败证据，未更改断言。独立 reviews 仍为空。
+
+本轮独立后续修复（不重新打开已合并 PR）：
+- scripts/verify_provider_sources.py 与 backup-provider.yml 要求 v1/v2 文件名各恰有
+  一份基线，避免两个同格式文件满足总数 2；新增两项工具回归。
+- release-isolation.yml 在干净 checkout 编译实际 Release iPhone 应用；新脚本检查
+  二进制测试开关/目录入口、固定样本与测试共享配置，上传日志与 JSON；新增 6 项回归。
+- 本地 30 项工具测试全部通过，YAML 解析及 git diff --check 通过。应用源码、事务和
+  存储格式不变。本地无 Xcode/iOS SDK；Release 编译与加强后的专项仍待公开 CI。
+
+剩余事项已建 Issue 并指派 daqianyu：
+[FP-06 #15](https://github.com/daqianyu/Interline/issues/15)、
+[外部提供器 #16](https://github.com/daqianyu/Interline/issues/16)、
+[后台/真机 #17](https://github.com/daqianyu/Interline/issues/17)、
+[独立审查 #18](https://github.com/daqianyu/Interline/issues/18)。
+各项列明环境条件、退出标准和发布阻断关系；日期待资源落实，不虚构完成承诺。
+Q01 仍 IN_PROGRESS；下一开发项仍为 FP-06。独立审查和外部环境缺口未因 #14 合并解除。
+
+本轮代码创建 GitHub tree 的上传此前被自动审批拒绝，要求对本轮具体载荷和目的地
+明确授权，未接受既有持续授权；没有改走其他上传路径。本地修复已整理到
+codex/fp05-verification-guards，拟向同一公开仓库 main 新建后续 PR。
+在明确授权前仅保留本地提交/补丁，不声称新增 CI 已运行或修复已发布。
+
+### 本轮发布授权与复验更新（2026-10-25）
+
+用户已明确授权上述 12 个文件公开提交至 daqianyu/Interline，从
+codex/fp05-verification-guards 向 main 新建后续 PR；此前上传阻塞已解除。
+发布前本地 30 项工具测试复验通过。
+
+TXT 历史运行 40124096911 的重跑 job 121123292925 已完成：5 项执行、4 通过，
+UTF16LE 在 LocalTXTProviderTests.swift:42 截图请求超时失败；源哈希步骤跳过。
+保留此失败，不宣称该复验成功，不移除截图或业务断言，不无限重跑。
+本轮新增 CI 的结果单独记录，不将旧代码的通过记录替代本轮门槛。
